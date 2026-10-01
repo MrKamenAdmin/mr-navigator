@@ -2,7 +2,13 @@ package me.brekhin.mrnavigator.api
 
 import me.brekhin.mrnavigator.util.*
 
-data class User(val id: Long, val username: String, val name: String) {
+data class User(
+    val id: Long,
+    val username: String,
+    val name: String,
+    /** The account key filters go by where [username] isn't unique (Bitbucket Cloud's uuid). */
+    val accountId: String? = null,
+) {
     companion object {
         fun from(m: Map<String, Any?>?): User? = m?.let {
             User(it.long("id") ?: 0, it.str("username") ?: "", it.str("name") ?: it.str("username") ?: "")

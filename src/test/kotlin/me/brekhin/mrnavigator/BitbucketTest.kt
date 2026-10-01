@@ -7,6 +7,7 @@ import me.brekhin.mrnavigator.api.Connection
 import me.brekhin.mrnavigator.api.DiffRefs
 import me.brekhin.mrnavigator.api.HostingType
 import me.brekhin.mrnavigator.api.LinePoint
+import me.brekhin.mrnavigator.api.MrFilter
 import me.brekhin.mrnavigator.core.DiffLineMap
 import me.brekhin.mrnavigator.git.RemoteUrl
 import me.brekhin.mrnavigator.util.Json
@@ -109,6 +110,12 @@ class BitbucketTest {
     @Test
     fun cloudQueryAndHosting() {
         assertEquals("\"a \\\"b\\\" \\\\c\"", BitbucketCloudClient.quote("a \"b\" \\c"))
+        // Nicknames aren't unique: filter by the account uuid.
+        val me = BitbucketCloudClient.user(obj("""{"nickname":"alice","display_name":"Alice","uuid":"{0f1e}"}"""))
+        assertEquals("{0f1e}", me?.accountId)
+        assertEquals("""reviewers.uuid="{0f1e}" AND title ~ "fix"""", BitbucketCloudClient.query(MrFilter.REVIEW_REQUESTED, me, " fix "))
+        assertEquals("""author.uuid="{0f1e}"""", BitbucketCloudClient.query(MrFilter.MINE, me, null))
+        assertEquals("", BitbucketCloudClient.query(MrFilter.OPENED, me, ""))
         assertEquals(HostingType.BITBUCKET_CLOUD, HostingType.guess("bitbucket.org"))
     }
 

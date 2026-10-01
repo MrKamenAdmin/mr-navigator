@@ -40,14 +40,7 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
     override fun currentUser(): User = user(get("/user")) ?: throw ApiException(msg("api.emptyUser", "Bitbucket"))
 
     override fun mergeRequests(project: ProjectRef, filter: MrFilter, me: User?, search: String?): List<MergeRequest> {
-        val q = listOfNotNull(
-            when (filter) {
-                MrFilter.REVIEW_REQUESTED -> me?.let { "reviewers.nickname=${quote(it.username)}" }
-                MrFilter.MINE -> me?.let { "author.nickname=${quote(it.username)}" }
-                else -> null
-            },
-            search?.trim()?.takeIf { it.isNotEmpty() }?.let { "title ~ ${quote(it)}" },
-        ).joinToString(" AND ")
+        val q = query(filter, me, search)
         val state = if (filter == MrFilter.MERGED) "MERGED" else "OPEN"
         val params = "state=$state&sort=-updated_on&pagelen=50" + (if (q.isNotEmpty()) "&q=" + URLEncoder.encode(q, Charsets.UTF_8) else "")
         return paged("${repo(project.path)}/pullrequests?$params", limit = 200).map { parsePull(it, null, project.path) }
@@ -93,7 +86,20 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
     companion object {
         internal fun user(m: Map<String, Any?>?): User? = m?.let {
             val nickname = it.str("nickname") ?: it.str("account_id") ?: ""
-            User(0, nickname, it.str("display_name") ?: nickname)
+            User(0, nickname, it.str("display_name") ?: nickname, it.str("uuid"))
+        }
+
+        /** The `q` filter of the pull request list: by account uuid (nicknames aren't unique), and the title. */
+        internal fun query(filter: MrFilter, me: User?, search: String?): String {
+            fun who(field: String) = me?.let { u -> u.accountId?.let { "$field.uuid=${quote(it)}" } ?: "$field.nickname=${quote(u.username)}" }
+            return listOfNotNull(
+                when (filter) {
+                    MrFilter.REVIEW_REQUESTED -> who("reviewers")
+                    MrFilter.MINE -> who("author")
+                    else -> null
+                },
+                search?.trim()?.takeIf { it.isNotEmpty() }?.let { "title ~ ${quote(it)}" },
+            ).joinToString(" AND ")
         }
 
         /**
