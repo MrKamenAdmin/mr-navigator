@@ -71,7 +71,7 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
     }
 
     override fun reply(project: ProjectRef, mr: MergeRequest, d: Discussion, body: String) {
-        send("POST", "${pr(project, mr)}/comments", mapOf("content" to mapOf("raw" to body), "parent" to mapOf("id" to d.id.toLong())))
+        send("POST", "${pr(project, mr)}/comments", replyPayload(body, d))
     }
 
     override fun resolve(project: ProjectRef, mr: MergeRequest, d: Discussion, resolved: Boolean) {
@@ -151,12 +151,14 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
             return comments.filterNot { it.bool("deleted") }.groupBy { root(it) }.map { (r, notes) ->
                 val position = position(r.o("inline"))
                 val resolution = r.o("resolution")
+                // Only a live top-level comment can be resolved.
+                val resolvable = !r.bool("deleted")
                 Discussion(
                     id = r.long("id").toString(),
                     notes = notes.sortedBy { it.str("created_on").orEmpty() }.map { c ->
                         Note(
                             id = c.long("id") ?: 0, body = c.o("content")?.str("raw") ?: "", author = user(c.o("user")),
-                            createdAt = c.str("created_on"), system = false, resolvable = true, resolved = resolution != null,
+                            createdAt = c.str("created_on"), system = false, resolvable = resolvable, resolved = resolution != null,
                             position = position, resolvedBy = user(resolution?.o("user")),
                         )
                     },
@@ -194,6 +196,10 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
             }
             return payload
         }
+
+        /** A reply goes under the root, or under the first live comment when the root is deleted. */
+        internal fun replyPayload(body: String, d: Discussion): Map<String, Any?> =
+            mapOf("content" to mapOf("raw" to body), "parent" to mapOf("id" to (d.first?.id ?: d.id.toLong())))
 
         /** A string literal of Bitbucket's query language. */
         internal fun quote(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""

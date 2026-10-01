@@ -13,6 +13,7 @@ import me.brekhin.mrnavigator.util.Json
 import me.brekhin.mrnavigator.util.obj
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -90,6 +91,9 @@ class BitbucketTest {
         val t = BitbucketCloudClient.threads(comments).single()
         assertEquals(listOf("still here"), t.notes.map { it.body })
         assertEquals(3, t.position!!.oldLine)
+        // The deleted root can be neither resolved nor replied to: replies go to the first live comment.
+        assertFalse(t.resolvable)
+        assertEquals(mapOf("content" to mapOf("raw" to "x"), "parent" to mapOf("id" to 2L)), BitbucketCloudClient.replyPayload("x", t))
     }
 
     @Test
