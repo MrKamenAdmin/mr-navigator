@@ -235,4 +235,26 @@ class LogicTest {
         assertEquals("<div><i>Suggestion:</i></div><pre><code>foo()</code></pre>", Markdown.toHtml("```suggestion:-0+0\nfoo()\n```"))
         assertEquals("<div><i>Suggestion:</i></div><pre><code>// ```\nx</code></pre>", Markdown.toHtml("````suggestion:-1+0\n// ```\nx\n````"))
     }
+
+    @Test
+    fun descriptionMarkdown() {
+        val base = "https://git.corp/team/api"
+        fun html(md: String) = Markdown.gfmToHtml(md, base)
+        assertTrue("<h2>Title</h2>" in html("## Title"))
+        assertTrue("<ol><li>a</li><li>b</li></ol>" in html("1. a\n2. b"))
+        assertTrue("<td>1</td>" in html("| x |\n|---|\n| 1 |"))
+        assertTrue("☑ done" in html("- [x] done"))
+        assertTrue("☐ todo" in html("- [ ] todo"))
+        assertTrue("<span style=\"text-decoration: line-through\">old</span>" in html("~~old~~"))
+        // Raw HTML from the author is shown as text, never interpreted (Swing would instantiate <object>).
+        val raw = html("<object classid=\"javax.swing.JButton\"></object> and <b>x</b>")
+        assertFalse("<object" in raw); assertFalse("<b>" in raw)
+        assertTrue("&lt;b&gt;" in raw)
+        // Images become links; relative URLs (GitLab uploads) are resolved against the project.
+        val img = html("![shot](/uploads/ab/s.png)")
+        assertFalse("<img" in img)
+        assertTrue("<a href=\"$base/uploads/ab/s.png\">shot</a>" in img)
+        assertTrue("<a href=\"https://e.com\">e</a>" in html("[e](https://e.com)"))
+        assertTrue("<a href=\"#x\">" in html("[x](#x)"))
+    }
 }

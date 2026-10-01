@@ -1,7 +1,47 @@
 package me.brekhin.mrnavigator.util
 
-/** Very small Markdown → HTML for comment bodies (code blocks, inline code, bold, links, lists). */
+import org.intellij.markdown.MarkdownElementTypes
+import org.intellij.markdown.MarkdownTokenTypes
+import org.intellij.markdown.ast.ASTNode
+import org.intellij.markdown.ast.getTextInNode
+import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
+import org.intellij.markdown.html.GeneratingProvider
+import org.intellij.markdown.html.HtmlGenerator
+import org.intellij.markdown.parser.LinkMap
+import org.intellij.markdown.parser.MarkdownParser
+
+/**
+ * Markdown → HTML: [gfmToHtml] for MR descriptions; [toHtml], a very small renderer for comment bodies
+ * (code blocks, inline code, bold, links, lists) that labels suggestion blocks.
+ */
 object Markdown {
+    private val IMG = Regex("""<img src="([^"]*)" alt="([^"]*)" ?/>""")
+    private val TASK = Regex("""<input type="checkbox" class="task-list-item-checkbox"( checked)? disabled ?/>""")
+    // Neither a scheme ("https:", "mailto:") nor an anchor.
+    private val RELATIVE_HREF = Regex("""href="(?![a-zA-Z][a-zA-Z0-9+.-]*:|#)([^"]*)"""")
+
+    /**
+     * Full GitHub-flavoured Markdown for MR descriptions, with the parser bundled in the IDE.
+     * Raw HTML of the author is escaped (Swing would interpret `<object>`), images become links
+     * (Swing can't load them: uploads need auth), relative links are resolved against [baseUrl].
+     */
+    fun gfmToHtml(md: String, baseUrl: String): String {
+        val flavour = GFMFlavourDescriptor()
+        val tree = MarkdownParser(flavour).buildMarkdownTreeFromString(md)
+        val escapeRaw = object : GeneratingProvider {
+            override fun processNode(visitor: HtmlGenerator.HtmlGeneratingVisitor, text: String, node: ASTNode) =
+                visitor.consumeHtml(escape(node.getTextInNode(text).toString()))
+        }
+        val providers = flavour.createHtmlGeneratingProviders(LinkMap.buildLinkMap(tree, md), null) +
+            mapOf(MarkdownElementTypes.HTML_BLOCK to escapeRaw, MarkdownTokenTypes.HTML_TAG to escapeRaw)
+        return HtmlGenerator(md, tree, providers, false).generateHtml()
+            .replace(IMG) { "<a href=\"${it.groupValues[1]}\">${it.groupValues[2].ifEmpty { it.groupValues[1].substringAfterLast('/') }}</a>" }
+            .replace(TASK) { if (it.groupValues[1].isEmpty()) "☐ " else "☑ " }
+            // Swing CSS knows no classes from the generator.
+            .replace("<span class=\"user-del\">", "<span style=\"text-decoration: line-through\">")
+            .replace(RELATIVE_HREF) { "href=\"${baseUrl.trimEnd('/')}/${it.groupValues[1].trimStart('/')}\"" }
+    }
+
     fun toHtml(md: String): String {
         val out = StringBuilder()
         val lines = md.replace("\r\n", "\n").split('\n')

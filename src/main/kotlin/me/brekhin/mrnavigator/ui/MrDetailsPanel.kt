@@ -21,6 +21,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
+import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.WrapLayout
@@ -45,6 +46,7 @@ import javax.swing.JEditorPane
 import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.SwingConstants
+import javax.swing.event.HyperlinkEvent
 
 /** Details of the selected MR: actions, files, discussion, description. */
 class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(BorderLayout()) {
@@ -72,7 +74,11 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
     private val newCommentButton = JButton("Новый комментарий", AllIcons.General.Add)
     private val hideResolved = JBCheckBox("Скрыть решённые")
 
-    private val description = JEditorPane(UIUtil.HTML_MIME, "").apply { isEditable = false }
+    private val description = JEditorPane().apply {
+        editorKit = HTMLEditorKitBuilder.simple()
+        isEditable = false
+        addHyperlinkListener { if (it.eventType == HyperlinkEvent.EventType.ACTIVATED) it.url?.let { url -> BrowserUtil.browse(url) } }
+    }
     private val tabs = JBTabbedPane()
 
     private val placeholder = JBLabel("Выберите merge request", SwingConstants.CENTER).apply {
@@ -205,7 +211,9 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         updateFilesSummary()
         tree.repaint()
         renderThreads()
-        description.text = "<html><body>${Markdown.toHtml(mr.description.ifBlank { "_Нет описания_" })}</body></html>"
+        // Relative links in GitLab descriptions (uploads) are relative to the project.
+        description.text = "<html>${Markdown.gfmToHtml(mr.description.ifBlank { "_Нет описания_" }, mr.webUrl.substringBefore("/-/"))}</html>"
+        description.caretPosition = 0
         revalidate(); repaint()
     }
 
