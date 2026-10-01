@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- CI: a click on the CI line lists the jobs and checks of the head commit, each opening its page with the log; GitLab shows the jobs of the pipeline with their stage. Failed jobs can be restarted from the list on GitLab and GitHub Actions.
+- Files whose diff the server didn't send because of their size (GitLab, GitHub) get it from git when opened: comments and +/− counts work on them.
+
 ## 0.4.1
 
 - Merge can't be cancelled midway any more: a sent merge goes on on the server, and a cancel reported it as failed. Bitbucket Cloud no longer waits a minute for a merge that is already done.
