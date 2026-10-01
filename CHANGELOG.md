@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - Apply suggestions from the comment thread: GitLab commits them to the merge request branch.
 
