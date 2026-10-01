@@ -146,6 +146,11 @@ class GitHubTest {
         val checks = GitHubClient.checksOf(runs, statuses, "https://github.com/o/r/pull/1/checks")
         assertEquals(CiState.FAILED, checks.state); assertEquals(listOf("build", "lint", "ci/x"), checks.items.map { it.name })
         assertEquals(CiState.RUNNING, checks.items[1].state)
+        // Workflow runs worth "re-run failed jobs": finished, and not successfully.
+        val workflowRuns = listOf("""{"id":1,"status":"completed","conclusion":"failure"}""", """{"id":2,"status":"completed","conclusion":"success"}""",
+            """{"id":3,"status":"in_progress","conclusion":null}""", """{"id":4,"status":"completed","conclusion":"cancelled"}""",
+            """{"id":5,"status":"completed","conclusion":"timed_out"}""").map { obj(it) }
+        assertEquals(listOf(1L, 4L, 5L), GitHubClient.failedRuns(workflowRuns))
         val pr = obj("""{"mergeable":false,"mergeable_state":"dirty","head":{"repo":{"full_name":"o/r"}},"base":{"repo":{"full_name":"o/r"}}}""")
         val o = GitHubClient.mergeOptions(pr, obj("""{"allow_merge_commit":false,"allow_squash_merge":true,"allow_rebase_merge":true}"""))
         assertEquals(listOf("squash", "rebase"), o.strategies.map { it.id }); assertEquals(msg("merge.conflicts"), o.blocker); assertTrue(o.canDeleteBranch)

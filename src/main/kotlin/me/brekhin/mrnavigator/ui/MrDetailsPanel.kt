@@ -2,6 +2,7 @@ package me.brekhin.mrnavigator.ui
 
 import com.intellij.icons.AllIcons
 import java.awt.Cursor
+import javax.swing.Icon
 import javax.swing.ListCellRenderer
 import java.awt.event.KeyEvent
 import java.awt.event.KeyAdapter
@@ -15,6 +16,10 @@ import com.intellij.ui.ColorUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.diff.util.Side
 import com.intellij.ide.BrowserUtil
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.ui.popup.ListSeparator
+import com.intellij.openapi.ui.popup.PopupStep
+import com.intellij.openapi.ui.popup.util.BaseListPopupStep
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
 import com.intellij.ui.SimpleTextAttributes
@@ -73,7 +78,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
-                session?.checks?.url?.let { BrowserUtil.browse(it) }
+                session?.let { showChecks(it) }
             }
         })
     }
@@ -243,23 +248,8 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         reviewButton.text = msg("details.review", drafts)
         val checks = s.checks
         ci.isVisible = checks.state != CiState.NONE
-        ci.icon = when (checks.state) {
-            CiState.SUCCESS -> AllIcons.General.InspectionsOK
-            CiState.FAILED -> AllIcons.General.Error
-            CiState.MANUAL -> AllIcons.Actions.Pause
-            else -> AllIcons.Actions.Execute
-        }
+        ci.icon = ciIcon(checks.state)
         if (checks.state != CiState.NONE) ci.text = msg("details.ci.${checks.state.name}")
-        ci.toolTipText = checks.items.joinToString("<br>", "<html>", "</html>") { c ->
-            val mark = when (c.state) {
-                CiState.SUCCESS -> "✓"
-                CiState.FAILED -> "✗"
-                CiState.RUNNING -> "…"
-                CiState.MANUAL -> "⏸"
-                CiState.NONE -> "·"
-            }
-            "$mark ${Markdown.escape(c.name)}"
-        }
         mergeButton.isVisible = mr.state == "opened" || mr.state == "open"
         updateFilesSummary()
         tree.repaint()
@@ -436,6 +426,37 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
                 load(s.mr, s.type)
             }
         }
+    }
+
+    private fun ciIcon(state: CiState): Icon? = when (state) {
+        CiState.SUCCESS -> AllIcons.General.InspectionsOK
+        CiState.FAILED -> AllIcons.General.Error
+        CiState.MANUAL -> AllIcons.Actions.Pause
+        CiState.RUNNING -> AllIcons.Actions.Execute
+        CiState.NONE -> null
+    }
+
+    /** The jobs and checks of the head commit: each opens its page (the log); below — the whole CI and "Retry failed". */
+    private fun showChecks(s: MrSession) {
+        class Entry(val text: String, val icon: Icon?, val run: () -> Unit)
+        val checks = s.checks
+        val jobs = checks.items.map { c -> Entry(c.name, ciIcon(c.state)) { c.url?.let { BrowserUtil.browse(it) } } }
+        val actions = listOfNotNull(
+            checks.url?.let { url -> Entry(msg("openInBrowser"), AllIcons.General.Web) { BrowserUtil.browse(url) } },
+            Entry(msg("ci.retry"), AllIcons.Actions.Restart) { retryChecks(s) }
+                .takeIf { s.type.canRetryChecks && checks.items.any { it.state == CiState.FAILED } },
+        )
+        val step = object : BaseListPopupStep<Entry>(null, jobs + actions) {
+            override fun getTextFor(value: Entry) = value.text
+            override fun getIconFor(value: Entry) = value.icon
+            override fun getSeparatorAbove(value: Entry) = if (jobs.isNotEmpty() && value === actions.firstOrNull()) ListSeparator() else null
+            override fun onChosen(selectedValue: Entry, finalChoice: Boolean): PopupStep<*>? = doFinalStep { selectedValue.run() }
+        }
+        JBPopupFactory.getInstance().createListPopup(step).showUnderneathOf(ci)
+    }
+
+    private fun retryChecks(s: MrSession) {
+        Bg.run(project, msg("ci.retryTask"), work = { service.retryChecks(s) }) { Notify.info(project, msg("ci.retried", s.ref)) }
     }
 
     private fun withdrawChanges(s: MrSession) {

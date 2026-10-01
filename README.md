@@ -28,7 +28,7 @@ The built-in integrations show the diff from revisions, so Ctrl+Click, Find Usag
 - **Description** rendered as GitHub-flavoured Markdown: headings, tables, task lists, quotes.
 - **Several repositories in one folder:** a repository switcher appears when the opened folder contains several repositories.
 - **Approve / revoke approval, Request changes / withdraw the request**; the card shows who approved and who requested changes.
-- **CI status** of the head commit in the card (a click opens it, the tooltip lists the checks), and **Merge…** with the strategies the server allows and an option to delete the source branch.
+- **CI status** of the head commit in the card; a click lists the jobs and checks — each opens its log — and restarts the failed ones (GitLab, GitHub Actions); and **Merge…** with the strategies the server allows and an option to delete the source branch.
 - Open in browser.
 - **English and Russian** interface.
 - The IDE's proxy and certificate settings apply.
@@ -113,7 +113,7 @@ Without checkout the diff still opens, but its right side is a revision rather t
 - Outdated threads (written for an older version) are drawn in the gutter only on GitLab and GitHub, when the commit they were written on is in the local repository and their line didn't change; all of them are listed on the Discussion tab, marked as outdated.
 - Bitbucket Cloud has no API for batched reviews: the comments of a review are sent one by one, with a notification each.
 - Merge: no auto-merge or merge queue; Bitbucket Data Center can't delete the source branch from the plugin.
-- No line comments for files whose diff the server doesn't return because of their size.
+- Files whose diff the server doesn't return because of their size get their hunks from a local `git diff`; the server may still refuse comments on them.
 - GitHub and Bitbucket accept comments only on lines of the diff hunks; the **+** is not shown elsewhere.
 - Suggestions: inserting works on GitLab and GitHub, applying only on GitLab (GitHub and Bitbucket have no API for it). Suggestions are possible only on lines of the new version. An applied suggestion is a new commit on the server: refresh the request and check it out again to get it locally.
 - GitHub: an approval can't be withdrawn by its author, only dismissed — that needs write access to the repository.

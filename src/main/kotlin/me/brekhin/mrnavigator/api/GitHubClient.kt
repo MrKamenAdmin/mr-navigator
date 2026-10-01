@@ -139,6 +139,14 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
         return checksOf(runs, statuses, "${mr.webUrl}/checks")
     }
 
+    /** "Re-run failed jobs" of the GitHub Actions runs of the head commit; statuses of other CI can't be restarted. */
+    override fun retryChecks(project: ProjectRef, mr: MergeRequest) {
+        val sha = mr.diffRefs?.headSha ?: mr.sha ?: return
+        val runs = get("${repo(project)}/actions/runs?head_sha=$sha&per_page=100").obj().a("workflow_runs").map { it.obj() }
+        val failed = failedRuns(runs).ifEmpty { throw ApiException(msg("ci.notActions")) }
+        for (id in failed) send("POST", "${repo(project)}/actions/runs/$id/rerun-failed-jobs", emptyMap<String, Any?>())
+    }
+
     override fun mergeOptions(project: ProjectRef, mr: MergeRequest): MergeOptions =
         mergeOptions(get(pull(project, mr)).obj(), get(repo(project)).obj())
 
@@ -287,6 +295,10 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
             }
             return payload
         }
+
+        /** Workflow runs whose failed jobs can be re-run: finished, and not successfully. */
+        internal fun failedRuns(runs: List<Map<String, Any?>>): List<Long> =
+            runs.filter { it.str("status") == "completed" && it.str("conclusion") in setOf("failure", "cancelled", "timed_out") }.mapNotNull { it.long("id") }
 
         internal fun checksOf(runs: List<Map<String, Any?>>, statuses: List<Map<String, Any?>>, url: String?): Checks = Checks.of(
             runs.map { Check(it.str("name") ?: "?", runState(it.str("status"), it.str("conclusion")), it.str("html_url")) } +

@@ -34,6 +34,15 @@ class GitLabTest {
         assertEquals(CiState.FAILED, GitLabClient.pipeline(obj("""{"status":"failed"}""")).state)
         assertEquals(CiState.NONE, GitLabClient.pipeline(obj("""{"status":"skipped"}""")).state)
         assertEquals(CiState.MANUAL, GitLabClient.pipeline(obj("""{"status":"manual"}""")).state)
+        // Jobs in the order they were created; the pipeline's own status wins (a job may be allowed to fail).
+        val jobs = listOf("""{"id":3,"name":"deploy","stage":"deploy","status":"manual","web_url":"j3"}""",
+            """{"id":1,"name":"build","stage":"build","status":"success","web_url":"j1"}""",
+            """{"id":2,"name":"lint","stage":"test","status":"failed","allow_failure":true,"web_url":"j2"}""").map { obj(it) }
+        val withJobs = GitLabClient.pipeline(obj("""{"id":5,"status":"success","web_url":"https://g/p/5"}"""), jobs)
+        assertEquals(CiState.SUCCESS, withJobs.state); assertEquals("https://g/p/5", withJobs.url)
+        assertEquals(listOf("build · build", "test · lint", "deploy · deploy"), withJobs.items.map { it.name })
+        assertEquals(listOf(CiState.SUCCESS, CiState.FAILED, CiState.MANUAL), withJobs.items.map { it.state })
+        assertEquals("j2", withJobs.items[1].url)
         val o = GitLabClient.mergeOptions(obj("""{"detailed_merge_status":"not_approved"}"""), obj("""{"squash_option":"default_on"}"""))
         assertEquals(listOf("merge", "squash"), o.strategies.map { it.id }); assertEquals("squash", o.defaultStrategy)
         assertEquals("not approved", o.blocker); assertTrue(o.canDeleteBranch)

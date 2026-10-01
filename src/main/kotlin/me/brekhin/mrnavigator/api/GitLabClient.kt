@@ -144,8 +144,25 @@ class GitLabClient(serverUrl: String, token: String) : HostingClient {
         if (errors.isNotEmpty()) throw ApiException("GitLab: " + errors.joinToString("; "))
     }
 
-    override fun checks(project: ProjectRef, mr: MergeRequest): Checks =
-        json("GET", "${proj(project)}/merge_requests/${mr.iid}").obj().o("head_pipeline")?.let { pipeline(it) } ?: Checks.NONE
+    override fun checks(project: ProjectRef, mr: MergeRequest): Checks {
+        val p = headPipeline(project, mr) ?: return Checks.NONE
+        // A guest of a private project may see the pipeline but not its jobs.
+        val jobs = try {
+            paged("${proj(project)}/pipelines/${p.long("id")}/jobs")
+        } catch (e: ApiException) {
+            null
+        }
+        return pipeline(p, jobs)
+    }
+
+    /** Retries the failed and canceled jobs of the head pipeline, like "Retry" on the web. */
+    override fun retryChecks(project: ProjectRef, mr: MergeRequest) {
+        val id = headPipeline(project, mr)?.long("id") ?: return
+        json("POST", "${proj(project)}/pipelines/$id/retry", emptyMap<String, Any?>())
+    }
+
+    private fun headPipeline(project: ProjectRef, mr: MergeRequest) =
+        json("GET", "${proj(project)}/merge_requests/${mr.iid}").obj().o("head_pipeline")
 
     override fun mergeOptions(project: ProjectRef, mr: MergeRequest): MergeOptions =
         mergeOptions(json("GET", "${proj(project)}/merge_requests/${mr.iid}").obj(), json("GET", proj(project)).obj())
@@ -167,9 +184,13 @@ class GitLabClient(serverUrl: String, token: String) : HostingClient {
             else -> CiState.RUNNING
         }
 
-        internal fun pipeline(p: Map<String, Any?>): Checks {
+        /** The pipeline with its [jobs] (null — no access to them: the pipeline alone); its status wins over theirs. */
+        internal fun pipeline(p: Map<String, Any?>, jobs: List<Map<String, Any?>>? = null): Checks {
             val url = p.str("web_url")
-            return Checks.of(listOf(Check("Pipeline #${p.long("id") ?: ""}", ciState(p.str("status")), url)), url)
+            val state = ciState(p.str("status"))
+            if (jobs.isNullOrEmpty()) return Checks.of(listOf(Check("Pipeline #${p.long("id") ?: ""}", state, url)), url)
+            val items = jobs.sortedBy { it.long("id") }.map { Check("${it.str("stage")} · ${it.str("name")}", ciState(it.str("status")), it.str("web_url")) }
+            return Checks(state, url, items)
         }
 
         /** Squash per the project's setting; the merge method itself (merge / rebase / ff) is the project's too. */

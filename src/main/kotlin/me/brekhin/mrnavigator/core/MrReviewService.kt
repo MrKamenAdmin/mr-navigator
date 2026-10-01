@@ -481,6 +481,13 @@ class MrReviewService(private val ideProject: Project) {
         }
     }
 
+    fun retryChecks(s: MrSession) {
+        val client = client(s.connection)
+        client.retryChecks(s.project, s.mr)
+        s.checks = Checks.orNone { client.checks(s.project, s.mr) }
+        fireChanged()
+    }
+
     fun mergeOptions(s: MrSession): MergeOptions = client(s.connection).mergeOptions(s.project, s.mr)
 
     fun merge(s: MrSession, strategy: String?, deleteBranch: Boolean) = client(s.connection).merge(s.project, s.mr, strategy, deleteBranch)

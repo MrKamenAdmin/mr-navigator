@@ -26,17 +26,19 @@ enum class HostingType(
     val canSuggest: Boolean,
     /** GitLab accepts comments on any line of the file, the others only on lines of the diff hunks. */
     val commentsOutsideHunks: Boolean,
+    /** "Retry failed jobs": GitLab pipelines and GitHub Actions; Bitbucket has no such API. */
+    val canRetryChecks: Boolean,
     /** Bundle key of the user name field of the connection form; null — no such field. */
     val usernameLabel: String?,
     /** The only server of a cloud service; null — the user enters the address. */
     val fixedUrl: String?,
 ) {
-    GITLAB("GitLab", '!', "MR", MrFilter.entries, canSuggest = true, commentsOutsideHunks = true, usernameLabel = null, fixedUrl = null),
-    GITHUB("GitHub", '#', "PR", MrFilter.entries, canSuggest = true, commentsOutsideHunks = false, usernameLabel = null, fixedUrl = null),
+    GITLAB("GitLab", '!', "MR", MrFilter.entries, canSuggest = true, commentsOutsideHunks = true, canRetryChecks = true, usernameLabel = null, fixedUrl = null),
+    GITHUB("GitHub", '#', "PR", MrFilter.entries, canSuggest = true, commentsOutsideHunks = false, canRetryChecks = true, usernameLabel = null, fixedUrl = null),
     BITBUCKET_CLOUD("Bitbucket Cloud", '#', "PR", MrFilter.entries - MrFilter.ASSIGNED, canSuggest = false, commentsOutsideHunks = false,
-        usernameLabel = "connection.email", fixedUrl = "https://bitbucket.org"),
+        canRetryChecks = false, usernameLabel = "connection.email", fixedUrl = "https://bitbucket.org"),
     BITBUCKET_SERVER("Bitbucket Data Center", '#', "PR", MrFilter.entries - MrFilter.ASSIGNED, canSuggest = false, commentsOutsideHunks = false,
-        usernameLabel = "connection.username", fixedUrl = null);
+        canRetryChecks = false, usernameLabel = "connection.username", fixedUrl = null);
 
     fun client(c: Connection, token: String): HostingClient = when (this) {
         GITLAB -> GitLabClient(c.url, token)
@@ -90,6 +92,8 @@ interface HostingClient {
     fun withdrawChanges(project: ProjectRef, mr: MergeRequest)
     /** CI of the head commit. */
     fun checks(project: ProjectRef, mr: MergeRequest): Checks
+    /** Restarts the failed jobs of the head commit; only where [HostingType.canRetryChecks]. */
+    fun retryChecks(project: ProjectRef, mr: MergeRequest): Unit = throw UnsupportedOperationException()
     fun mergeOptions(project: ProjectRef, mr: MergeRequest): MergeOptions
     /** [strategy] — an id from [mergeOptions], null for the server's default. */
     fun merge(project: ProjectRef, mr: MergeRequest, strategy: String?, deleteBranch: Boolean)
