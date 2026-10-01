@@ -20,6 +20,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 /** Everything loaded for one opened merge request. */
 class MrSession(
     val project: ProjectRef,
+    val connection: Connection,
     val git: GitCli,
     /** Remote of [git] that points at [project] — MR refs are fetched from it. */
     val remoteName: String,
@@ -30,7 +31,13 @@ class MrSession(
     /** Paths the user has already looked at in this version of the MR (kept between IDE restarts). */
     val viewed: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet(),
 ) {
-    val refs: DiffRefs get() = mr.diffRefs ?: throw GitLabException("У MR нет diff_refs — GitLab ещё не посчитал diff, обновите позже")
+    val type: HostingType get() = connection.type
+    /** "!12" or "#12". */
+    val ref: String get() = "${type.prefix}${mr.iid}"
+
+    fun isOutdated(d: Discussion): Boolean = d.position?.isOutdatedFor(mr.diffRefs?.headSha) == true
+
+    val refs: DiffRefs get() = mr.diffRefs ?: throw ApiException("У MR нет diff_refs — GitLab ещё не посчитал diff, обновите позже")
     private val lineMaps = HashMap<FileChange, DiffLineMap>()
 
     fun lineMap(change: FileChange): DiffLineMap = synchronized(lineMaps) { lineMaps.getOrPut(change) { DiffLineMap(change.diff) } }
@@ -166,13 +173,13 @@ class MrReviewService(private val ideProject: Project) {
         emptyList()
     }
 
-    fun client(): GitLabClient {
+    fun client(): HostingClient {
         val settings = MrReviewSettings.getInstance()
         val token = settings.getToken() ?: throw SetupNeeded("Не задан токен GitLab")
         return GitLabClient(settings.serverUrl, token)
     }
 
-    fun currentUser(client: GitLabClient): User {
+    fun currentUser(client: HostingClient): User {
         val server = MrReviewSettings.getInstance().serverUrl
         cachedUser?.let { (s, u) -> if (s == server) return u }
         return client.currentUser().also { cachedUser = server to it }
@@ -188,10 +195,11 @@ class MrReviewService(private val ideProject: Project) {
         val client = client()
         runCatching { currentUser(client) }
         val full = client.mergeRequest(located.project, mr.iid)
-        val changes = client.changes(located.project, mr.iid)
-        val discussions = client.discussions(located.project, mr.iid)
-        val approved = client.approvedBy(located.project, mr.iid)
-        val s = MrSession(located.project, located.git, located.remoteName, full, changes, discussions, approved)
+        val changes = client.changes(located.project, full)
+        val discussions = client.discussions(located.project, full)
+        val approved = client.approvedBy(located.project, full)
+        val connection = Connection(HostingType.GITLAB, MrReviewSettings.getInstance().serverUrl)
+        val s = MrSession(located.project, connection, located.git, located.remoteName, full, changes, discussions, approved)
         loadViewed(s)
         session = s
         fireChanged()
@@ -218,12 +226,12 @@ class MrReviewService(private val ideProject: Project) {
     }
 
     fun refreshDiscussions(s: MrSession) {
-        s.discussions = client().discussions(s.project, s.mr.iid)
+        s.discussions = client().discussions(s.project, s.mr)
         fireChanged()
     }
 
     fun refreshApprovals(s: MrSession) {
-        s.approvedBy = client().approvedBy(s.project, s.mr.iid)
+        s.approvedBy = client().approvedBy(s.project, s.mr)
         fireChanged()
     }
 
@@ -253,7 +261,7 @@ class MrReviewService(private val ideProject: Project) {
         val refs = s.refs
         val remote = s.remoteName
         if (!s.git.hasCommit(refs.headSha)) {
-            s.git.run("fetch", remote, "+refs/merge-requests/${s.mr.iid}/head:refs/mr-review/${s.mr.iid}", timeoutMs = 300_000)
+            s.git.run("fetch", s.mr.fetchUrl ?: remote, "+${s.mr.fetchRef}:refs/mr-review/${s.mr.iid}", timeoutMs = 300_000)
         }
         if (!s.git.hasCommit(refs.baseSha)) {
             s.git.run("fetch", remote, s.mr.targetBranch, timeoutMs = 300_000)
@@ -334,17 +342,17 @@ class MrReviewService(private val ideProject: Project) {
     // ----------------------------------------------------------- comments
 
     fun postComment(s: MrSession, body: String, position: Position?) {
-        client().createDiscussion(s.project, s.mr.iid, body, position)
+        client().createDiscussion(s.project, s.mr, body, position)
         refreshDiscussions(s)
     }
 
     fun reply(s: MrSession, d: Discussion, body: String) {
-        client().reply(s.project, s.mr.iid, d.id, body)
+        client().reply(s.project, s.mr, d, body)
         refreshDiscussions(s)
     }
 
     fun setResolved(s: MrSession, d: Discussion, resolved: Boolean) {
-        client().resolve(s.project, s.mr.iid, d.id, resolved)
+        client().resolve(s.project, s.mr, d, resolved)
         refreshDiscussions(s)
     }
 

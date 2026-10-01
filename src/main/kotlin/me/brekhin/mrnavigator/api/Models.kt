@@ -22,9 +22,7 @@ data class DiffRefs(val baseSha: String, val startSha: String, val headSha: Stri
 }
 
 data class MergeRequest(
-    val id: Long,
     val iid: Long,
-    val projectId: Long,
     val title: String,
     val description: String,
     val state: String,
@@ -32,19 +30,20 @@ data class MergeRequest(
     val author: User?,
     val sourceBranch: String,
     val targetBranch: String,
-    val sourceProjectId: Long,
     val webUrl: String,
     val sha: String?,
     val diffRefs: DiffRefs?,
     val updatedAt: String?,
     val userNotesCount: Int,
     val hasConflicts: Boolean,
+    /** Ref on the server with the head commit, fetched into refs/mr-review/<iid>. */
+    val fetchRef: String,
+    /** Repository to fetch [fetchRef] from when it is not the project's remote (a Bitbucket Cloud fork). */
+    val fetchUrl: String? = null,
 ) {
     companion object {
         fun from(m: Map<String, Any?>) = MergeRequest(
-            id = m.long("id") ?: 0,
             iid = m.long("iid") ?: 0,
-            projectId = m.long("project_id") ?: 0,
             title = m.str("title") ?: "",
             description = m.str("description") ?: "",
             state = m.str("state") ?: "",
@@ -52,13 +51,13 @@ data class MergeRequest(
             author = User.from(m.o("author")),
             sourceBranch = m.str("source_branch") ?: "",
             targetBranch = m.str("target_branch") ?: "",
-            sourceProjectId = m.long("source_project_id") ?: 0,
             webUrl = m.str("web_url") ?: "",
             sha = m.str("sha"),
             diffRefs = DiffRefs.from(m.o("diff_refs")),
             updatedAt = m.str("updated_at"),
             userNotesCount = m.int("user_notes_count") ?: 0,
             hasConflicts = m.bool("has_conflicts"),
+            fetchRef = "refs/merge-requests/${m.long("iid") ?: 0}/head",
         )
     }
 }
@@ -159,8 +158,13 @@ data class Position(
     val newLine: Int?,
     /** Set for multi-line comments. */
     val lineRange: LineRange? = null,
+    /** The server says the thread was written for code that has changed since. */
+    val outdated: Boolean = false,
 ) {
     val isMultiLine: Boolean get() = lineRange != null && lineRange.start != lineRange.end
+
+    /** Written for another version of the MR than [head] — its lines no longer match the diff. */
+    fun isOutdatedFor(head: String?): Boolean = outdated || (headSha != null && head != null && headSha != head)
 
     /** "12", "-7", or for a range "-3–+5". */
     fun lineLabel(): String =
@@ -231,7 +235,7 @@ data class NoteSuggestion(val id: Long, val appliable: Boolean, val applied: Boo
     }
 }
 
-data class Discussion(val id: String, val notes: List<Note>) {
+data class Discussion(val id: String, val notes: List<Note>, val webUrl: String? = null) {
     val first: Note? get() = notes.firstOrNull()
     val position: Position? get() = first?.position
     val resolvable: Boolean get() = notes.any { it.resolvable }

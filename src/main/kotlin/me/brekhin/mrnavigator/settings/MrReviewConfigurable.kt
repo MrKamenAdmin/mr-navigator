@@ -7,7 +7,6 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.ThrowableComputable
-import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.AlignX
@@ -19,6 +18,7 @@ import com.intellij.ui.dsl.builder.columns
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.builder.rows
 import com.intellij.ui.dsl.builder.toNullableProperty
+import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import me.brekhin.mrnavigator.api.GitLabClient
 import me.brekhin.mrnavigator.util.msg
 
@@ -79,7 +79,7 @@ class MrReviewConfigurable : BoundConfigurable("MR Navigator") {
                 }
             }
             row(msg("settings.language")) {
-                comboBox(listOf("auto", "en", "ru"), SimpleListCellRenderer.create("") { msg("settings.language.$it") })
+                comboBox(listOf("auto", "en", "ru"), textListCellRenderer { msg("settings.language.$it") })
                     .bindItem(settings::language.toNullableProperty())
                     .comment(msg("settings.language.comment"))
             }

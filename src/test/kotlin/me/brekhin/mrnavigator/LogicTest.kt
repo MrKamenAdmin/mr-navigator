@@ -1,6 +1,8 @@
 package me.brekhin.mrnavigator
 
 import me.brekhin.mrnavigator.api.FileChange
+import me.brekhin.mrnavigator.api.Http
+import me.brekhin.mrnavigator.api.basicOrBearer
 import me.brekhin.mrnavigator.api.LinePoint
 import me.brekhin.mrnavigator.api.Note
 import me.brekhin.mrnavigator.api.NoteSuggestion
@@ -257,5 +259,28 @@ class LogicTest {
         assertTrue("<a href=\"$base/uploads/ab/s.png\">shot</a>" in img)
         assertTrue("<a href=\"https://e.com\">e</a>" in html("[e](https://e.com)"))
         assertTrue("<a href=\"#x\">" in html("[x](#x)"))
+    }
+
+    @Test
+    fun apiErrorMessages() {
+        assertEquals("401 Unauthorized", Http.errorMessage("""{"message":"401 Unauthorized"}"""))           // GitLab, GitHub
+        assertEquals("insufficient_scope", Http.errorMessage("""{"error":"insufficient_scope"}"""))         // GitLab OAuth
+        assertEquals("Bad diff", Http.errorMessage("""{"type":"error","error":{"message":"Bad diff"}}""")) // Bitbucket Cloud
+        assertEquals("No such PR", Http.errorMessage("""{"errors":[{"context":null,"message":"No such PR"}]}""")) // Bitbucket DC
+        assertEquals("<html>oops</html>", Http.errorMessage("<html>oops</html>"))
+        assertNull(Http.errorMessage(""))
+        assertEquals("Basic dTpw", basicOrBearer("p", "u"))
+        assertEquals("Bearer t", basicOrBearer("t", null))
+        assertEquals("Bearer t", basicOrBearer("t", " "))
+    }
+
+    @Test
+    fun outdatedPositions() {
+        val p = Position(null, null, "h1", "a", "a", null, 3)
+        assertFalse(p.isOutdatedFor("h1"))
+        assertTrue(p.isOutdatedFor("h2"))
+        assertFalse(p.isOutdatedFor(null))
+        assertFalse(p.copy(headSha = null).isOutdatedFor("h2"))
+        assertTrue(p.copy(headSha = null, outdated = true).isOutdatedFor("h2"))
     }
 }

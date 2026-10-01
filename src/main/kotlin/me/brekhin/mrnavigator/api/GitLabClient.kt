@@ -1,79 +1,18 @@
 package me.brekhin.mrnavigator.api
 
-import com.intellij.util.io.HttpRequests
-import me.brekhin.mrnavigator.util.Json
 import me.brekhin.mrnavigator.util.arr
+import me.brekhin.mrnavigator.util.msg
 import me.brekhin.mrnavigator.util.obj
 import me.brekhin.mrnavigator.util.str
-import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URLEncoder
 
-class GitLabException(message: String, val status: Int = 0, cause: Throwable? = null) : IOException(message, cause)
-
-/**
- * GitLab REST API v4 client. All methods block — call them from a background thread.
- * Uses the IDE's HttpRequests, so the IDE proxy and certificate settings apply.
- */
-class GitLabClient(serverUrl: String, private val token: String) {
+/** GitLab REST API v4. */
+class GitLabClient(serverUrl: String, token: String) : HostingClient {
     private val api = serverUrl.trimEnd('/') + "/api/v4"
+    private val http = Http("GitLab") { it.setRequestProperty("PRIVATE-TOKEN", token) }
 
-    private class Page(val body: String, val nextPage: String?)
-
-    private fun call(method: String, path: String, body: Any? = null): Page {
-        val url = if (path.startsWith("http")) path else api + path
-        val builder = when (method) {
-            "GET" -> HttpRequests.request(url)
-            "POST" -> HttpRequests.post(url, "application/json")
-            "PUT" -> HttpRequests.put(url, "application/json")
-            "DELETE" -> HttpRequests.delete(url)
-            else -> error("Unsupported method $method")
-        }
-        return try {
-            builder
-                .accept("application/json")
-                .productNameAsUserAgent()
-                .connectTimeout(15_000)
-                .readTimeout(60_000)
-                .tuner { it.setRequestProperty("PRIVATE-TOKEN", token) }
-                .isReadResponseOnError(true)
-                .connect { request ->
-                    if (body != null) request.write(Json.write(body))
-                    val code = (request.connection as HttpURLConnection).responseCode
-                    if (code >= 400) throw GitLabException(describe(code, errorMessage(request.readError())), code)
-                    val text = request.readString()
-                    Page(text, request.connection.getHeaderField("X-Next-Page")?.takeIf { it.isNotBlank() })
-                }
-        } catch (e: GitLabException) {
-            throw e
-        } catch (e: HttpRequests.HttpStatusException) {
-            throw GitLabException(describe(e.statusCode, errorMessage(e.message)), e.statusCode, e)
-        } catch (e: IOException) {
-            throw GitLabException(e.message ?: e.javaClass.simpleName, 0, e)
-        }
-    }
-
-    /** GitLab puts details into {"message": ...} or {"error": ...}. */
-    private fun errorMessage(body: String?): String? {
-        if (body.isNullOrBlank()) return null
-        return try {
-            val m = Json.parse(body).obj()
-            (m["message"] ?: m["error"])?.let { if (it is String) it else Json.write(it) } ?: body.take(300)
-        } catch (e: Exception) {
-            body.take(300)
-        }
-    }
-
-    private fun describe(status: Int, raw: String?): String = when (status) {
-        HttpURLConnection.HTTP_UNAUTHORIZED -> "GitLab: токен не принят (401). Проверьте токен в настройках."
-        HttpURLConnection.HTTP_FORBIDDEN -> "GitLab: недостаточно прав (403). Токену нужен scope api."
-        HttpURLConnection.HTTP_NOT_FOUND -> "GitLab: не найдено (404). ${raw.orEmpty()}"
-        HttpURLConnection.HTTP_BAD_REQUEST -> "GitLab отклонил запрос (400): ${raw.orEmpty()}"
-        else -> "GitLab: ошибка $status. ${raw.orEmpty()}"
-    }
-
-    private fun json(method: String, path: String, body: Any? = null): Any? =
-        call(method, path, body).body.let { if (it.isBlank()) null else Json.parse(it) }
+    private fun json(method: String, path: String, body: Any? = null): Any? = http.call(method, api + path, body).json()
 
     /** Follows X-Next-Page until exhausted (or [limit] items). */
     private fun paged(path: String, limit: Int = 2000): List<Map<String, Any?>> {
@@ -81,20 +20,22 @@ class GitLabClient(serverUrl: String, private val token: String) {
         val sep = if (path.contains('?')) '&' else '?'
         var page: String? = "1"
         while (page != null && out.size < limit) {
-            val p = call("GET", "$path${sep}per_page=100&page=$page")
-            out += Json.parse(p.body).arr().map { it.obj() }
-            page = p.nextPage
+            val r = http.call("GET", "$api$path${sep}per_page=100&page=$page")
+            out += r.json().arr().map { it.obj() }
+            page = r.header("X-Next-Page")?.takeIf { it.isNotBlank() }
         }
         return out
     }
 
     private fun proj(project: ProjectRef) = "/projects/${project.encodedPath}"
+    private fun mrPath(project: ProjectRef, mr: MergeRequest) = "${proj(project)}/merge_requests/${mr.iid}"
     private fun enc(s: String) = URLEncoder.encode(s, Charsets.UTF_8)
 
-    fun currentUser(): User = User.from(json("GET", "/user").obj()) ?: throw GitLabException("Пустой ответ /user")
+    override fun currentUser(): User = User.from(json("GET", "/user").obj()) ?: throw ApiException(msg("api.emptyUser", "GitLab"))
 
-    fun mergeRequests(project: ProjectRef, filter: MrFilter, me: User?, search: String?): List<MergeRequest> {
-        val params = StringBuilder("state=${filter.state}&order_by=updated_at&sort=desc")
+    override fun mergeRequests(project: ProjectRef, filter: MrFilter, me: User?, search: String?): List<MergeRequest> {
+        val state = if (filter == MrFilter.MERGED) "merged" else "opened"
+        val params = StringBuilder("state=$state&order_by=updated_at&sort=desc")
         when (filter) {
             MrFilter.REVIEW_REQUESTED -> me?.let { params.append("&reviewer_username=${enc(it.username)}") }
             MrFilter.MINE -> me?.let { params.append("&author_username=${enc(it.username)}") }
@@ -105,63 +46,55 @@ class GitLabClient(serverUrl: String, private val token: String) {
         return paged("${proj(project)}/merge_requests?$params", limit = 200).map { MergeRequest.from(it) }
     }
 
-    fun mergeRequest(project: ProjectRef, iid: Long): MergeRequest =
+    override fun mergeRequest(project: ProjectRef, iid: Long): MergeRequest =
         MergeRequest.from(json("GET", "${proj(project)}/merge_requests/$iid").obj())
 
-    /** Files of the MR. Uses /diffs (GitLab 15.7+), falls back to the older /changes. */
-    fun changes(project: ProjectRef, iid: Long): List<FileChange> = try {
-        paged("${proj(project)}/merge_requests/$iid/diffs").map { FileChange.from(it) }
-    } catch (e: GitLabException) {
+    /** Uses /diffs (GitLab 15.7+), falls back to the older /changes. */
+    override fun changes(project: ProjectRef, mr: MergeRequest): List<FileChange> = try {
+        paged("${mrPath(project, mr)}/diffs").map { FileChange.from(it) }
+    } catch (e: ApiException) {
         if (e.status != HttpURLConnection.HTTP_NOT_FOUND) throw e
-        json("GET", "${proj(project)}/merge_requests/$iid/changes").obj()["changes"].arr().map { FileChange.from(it.obj()) }
+        json("GET", "${mrPath(project, mr)}/changes").obj()["changes"].arr().map { FileChange.from(it.obj()) }
     }
 
-    fun discussions(project: ProjectRef, iid: Long): List<Discussion> =
-        paged("${proj(project)}/merge_requests/$iid/discussions").map { Discussion.from(it) }
+    override fun discussions(project: ProjectRef, mr: MergeRequest): List<Discussion> =
+        paged("${mrPath(project, mr)}/discussions").map { m ->
+            Discussion.from(m).let { it.copy(webUrl = "${mr.webUrl}#note_${it.first?.id ?: ""}") }
+        }
 
-    fun createDiscussion(project: ProjectRef, iid: Long, body: String, position: Position?): Discussion {
+    override fun createDiscussion(project: ProjectRef, mr: MergeRequest, body: String, position: Position?) {
         val payload = linkedMapOf<String, Any?>("body" to body)
         if (position != null) payload["position"] = position.toJson()
-        return Discussion.from(json("POST", "${proj(project)}/merge_requests/$iid/discussions", payload).obj())
+        json("POST", "${mrPath(project, mr)}/discussions", payload)
     }
 
-    fun reply(project: ProjectRef, iid: Long, discussionId: String, body: String) {
-        json("POST", "${proj(project)}/merge_requests/$iid/discussions/$discussionId/notes", mapOf("body" to body))
+    override fun reply(project: ProjectRef, mr: MergeRequest, d: Discussion, body: String) {
+        json("POST", "${mrPath(project, mr)}/discussions/${d.id}/notes", mapOf("body" to body))
     }
 
-    fun resolve(project: ProjectRef, iid: Long, discussionId: String, resolved: Boolean) {
-        json("PUT", "${proj(project)}/merge_requests/$iid/discussions/$discussionId?resolved=$resolved", emptyMap<String, Any?>())
+    override fun resolve(project: ProjectRef, mr: MergeRequest, d: Discussion, resolved: Boolean) {
+        json("PUT", "${mrPath(project, mr)}/discussions/${d.id}?resolved=$resolved", emptyMap<String, Any?>())
     }
 
     /** GitLab commits the suggestions to the source branch, like "Apply suggestion" on the web. */
-    fun applySuggestions(ids: List<Long>) {
+    override fun applySuggestions(ids: List<Long>) {
         if (ids.size == 1) json("PUT", "/suggestions/${ids[0]}/apply", emptyMap<String, Any?>())
         else json("PUT", "/suggestions/batch_apply", mapOf("ids" to ids))
     }
 
-    fun approve(project: ProjectRef, iid: Long, sha: String?) {
-        json("POST", "${proj(project)}/merge_requests/$iid/approve", if (sha != null) mapOf("sha" to sha) else emptyMap<String, Any?>())
+    override fun approve(project: ProjectRef, mr: MergeRequest) {
+        json("POST", "${mrPath(project, mr)}/approve", mr.sha?.let { mapOf("sha" to it) } ?: emptyMap<String, Any?>())
     }
 
-    fun unapprove(project: ProjectRef, iid: Long) {
-        json("POST", "${proj(project)}/merge_requests/$iid/unapprove", emptyMap<String, Any?>())
+    override fun unapprove(project: ProjectRef, mr: MergeRequest) {
+        json("POST", "${mrPath(project, mr)}/unapprove", emptyMap<String, Any?>())
     }
 
-    /** Usernames of those who approved; empty if approvals are not available on this instance. */
-    fun approvedBy(project: ProjectRef, iid: Long): List<String> = try {
-        json("GET", "${proj(project)}/merge_requests/$iid/approvals").obj()["approved_by"].arr()
+    /** Empty if approvals are not available on this instance. */
+    override fun approvedBy(project: ProjectRef, mr: MergeRequest): List<String> = try {
+        json("GET", "${mrPath(project, mr)}/approvals").obj()["approved_by"].arr()
             .mapNotNull { it.obj()["user"].obj().str("username") }
-    } catch (e: GitLabException) {
+    } catch (e: ApiException) {
         emptyList()
     }
-}
-
-enum class MrFilter(val title: String, val state: String) {
-    OPENED("Все открытые", "opened"),
-    REVIEW_REQUESTED("Ждут моего ревью", "opened"),
-    ASSIGNED("Назначены на меня", "opened"),
-    MINE("Мои", "opened"),
-    MERGED("Смёрженные", "merged");
-
-    override fun toString() = title
 }

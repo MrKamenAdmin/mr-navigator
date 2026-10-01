@@ -70,7 +70,10 @@ object ThreadPopup {
             isVisible = discussion.resolvable
             toolTipText = if (discussion.resolved) "Снова открыть обсуждение" else "Отметить обсуждение решённым"
         }
-        val openWeb = JButton(AllIcons.General.Web).apply { toolTipText = "Открыть в браузере" }
+        val openWeb = JButton(AllIcons.General.Web).apply {
+            toolTipText = "Открыть в браузере"
+            isVisible = discussion.webUrl != null
+        }
 
         fun busy(b: Boolean) {
             reply.isEnabled = !b; resolve.isEnabled = !b; input.isEnabled = !b
@@ -91,7 +94,7 @@ object ThreadPopup {
             Bg.run(project, "Resolve", work = { service.setResolved(session, discussion, !discussion.resolved) },
                 onError = { busy(false); Notify.error(project, "Не получилось", it) }) { popup.cancel() }
         }
-        openWeb.addActionListener { BrowserUtil.browse(session.mr.webUrl + "#note_" + (discussion.first?.id ?: "")) }
+        openWeb.addActionListener { discussion.webUrl?.let { BrowserUtil.browse(it) } }
         val applySuggestions = { ids: List<Long>, button: JButton ->
             busy(true); button.isEnabled = false
             Bg.run(project, "Применение suggestion", work = { service.applySuggestions(session, ids) },

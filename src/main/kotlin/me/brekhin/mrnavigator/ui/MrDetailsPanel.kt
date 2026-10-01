@@ -287,12 +287,6 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         tabs.setTitleAt(1, "Обсуждение (${all.size}" + (if (open > 0) ", открыто $open" else "") + ")")
     }
 
-    private fun isOutdated(s: MrSession, d: Discussion): Boolean {
-        val head = s.mr.diffRefs?.headSha
-        val p = d.position ?: return false
-        return p.headSha != null && head != null && p.headSha != head
-    }
-
     /** A line thread opens the diff at its line; a general or outdated one opens as a popup. */
     private fun openSelectedThread() {
         val d = threads.selectedValue ?: return
@@ -301,7 +295,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         val change = p?.let { pos ->
             s.changes.firstOrNull { it.newPath == pos.newPath || (pos.newPath == null && it.oldPath == pos.oldPath) }
         }
-        if (p != null && change != null && !isOutdated(s, d)) {
+        if (p != null && change != null && !s.isOutdated(d)) {
             val newLine = p.newLine
             val oldLine = p.oldLine
             val scrollTo = when {
@@ -360,7 +354,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         val approve = !isApprovedByMe(s)
         Bg.run(project, if (approve) "Approve" else "Отзыв approve", work = {
             val c = service.client()
-            if (approve) c.approve(s.project, s.mr.iid, s.mr.sha) else c.unapprove(s.project, s.mr.iid)
+            if (approve) c.approve(s.project, s.mr) else c.unapprove(s.project, s.mr)
             service.refreshApprovals(s)
         }) { }
     }
@@ -396,7 +390,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
             value.position?.let { p ->
                 top.append("  ·  ${(p.newPath ?: p.oldPath)?.substringAfterLast('/')}:${p.lineLabel()}", grey)
             }
-            if (s != null && isOutdated(s, value)) top.append("  устарел", SimpleTextAttributes.GRAYED_ITALIC_ATTRIBUTES)
+            if (s != null && s.isOutdated(value)) top.append("  устарел", SimpleTextAttributes.GRAYED_ITALIC_ATTRIBUTES)
             when {
                 value.resolved -> top.append("  решён", SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, if (selected) fg else PLUS))
                 value.resolvable -> top.append("  открыт", SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, if (selected) fg else OPEN))

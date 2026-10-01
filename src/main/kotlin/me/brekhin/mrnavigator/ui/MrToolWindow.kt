@@ -20,7 +20,7 @@ import com.intellij.ui.content.ContentFactory
 import com.intellij.util.ui.JBUI
 import me.brekhin.mrnavigator.api.MergeRequest
 import me.brekhin.mrnavigator.api.MrFilter
-import me.brekhin.mrnavigator.api.GitLabException
+import me.brekhin.mrnavigator.api.ApiException
 import me.brekhin.mrnavigator.core.MrReviewService
 import me.brekhin.mrnavigator.core.Repo
 import me.brekhin.mrnavigator.core.SetupNeeded
@@ -141,7 +141,7 @@ class MrToolWindowPanel(private val project: Project, parent: Disposable) : JPan
             else service.currentUser(client)
             Loaded(repos, repo, client.mergeRequests(repo.project, f, me, query))
         }, onError = { e ->
-            val unauthorized = e is GitLabException && e.status == 401
+            val unauthorized = e is ApiException && e.status == 401
             if (e is SetupNeeded || unauthorized) {
                 setup.prepare(
                     when {

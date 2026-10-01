@@ -111,14 +111,13 @@ class CommentMarkers(
         hoverLine = -1
 
         val s = session
-        val headSha = s.mr.diffRefs?.headSha
         val lineCount = editor.document.lineCount
         val byLine = LinkedHashMap<Int, MutableList<Discussion>>()
         for (d in s.threadsFor(ctx.change)) {
             val p = d.position ?: continue
             // Outdated thread (written for an older version of the MR) — its lines no longer match.
-            // It is still listed on the "Обсуждение" tab.
-            if (p.headSha != null && headSha != null && p.headSha != headSha) continue
+            // It is still listed on the Discussion tab.
+            if (s.isOutdated(d)) continue
             val newLine = p.newLine
             val oldLine = p.oldLine
             val (side, line1) = when {
