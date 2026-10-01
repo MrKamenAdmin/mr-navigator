@@ -159,6 +159,7 @@ class CommentMarkers(
         if (line < 0 || line >= editor.document.lineCount) return
         if (ctx.change.tooLarge) return
         val (side, fileLine) = mapping.fromEditor(line) ?: return
+        if (!session.type.commentsOutsideHunks && !session.lineMap(ctx.change).inHunk(fileLine + 1, side == Side.RIGHT)) return
         if (mapping.isOldSideEditor && side == Side.LEFT && !session.lineMap(ctx.change).isRemoved(fileLine + 1)) return
         if (threadHighlighters.any { it.isValid && editor.document.getLineNumber(it.startOffset) == line }) return
         hoverHighlighter = editor.markupModel.addLineHighlighter(line, HighlighterLayer.LAST, null).also {
@@ -182,7 +183,12 @@ class CommentMarkers(
         val s = session
         val refs = s.refs
         val c = ctx.change
-        val position = s.lineMap(c).position(
+        val map = s.lineMap(c)
+        if (!s.type.commentsOutsideHunks && listOfNotNull(start, endSide to endLine).any { (side, line) -> !map.inHunk(line + 1, side == Side.RIGHT) }) {
+            Notify.info(project, msg("diff.outsideHunk", s.type.title))
+            return
+        }
+        val position = map.position(
             refs.baseSha, refs.startSha, refs.headSha,
             c.oldPath, c.newPath,
             end = DiffLineMap.Line(endLine + 1, endSide == Side.RIGHT),

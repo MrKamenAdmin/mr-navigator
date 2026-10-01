@@ -111,7 +111,7 @@ object ThreadPopup {
             if (discussion.resolved) add(resolvedBanner(discussion), BorderLayout.NORTH)
             add(notesView(discussion, session.type, applySuggestions), BorderLayout.CENTER)
             add(editor(input,
-                left = listOf(reply, suggestionButton(input, suggestionLines, session.type.term)),
+                left = listOf(reply, suggestionButton(input, suggestionLines, session.type)),
                 right = listOf(resolve, openWeb)), BorderLayout.SOUTH)
         }
         popup = build(panel, input, title(discussion), onClosed)
@@ -152,7 +152,7 @@ object ThreadPopup {
 
         val panel = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(8, 10, 10, 10)
-            add(editor(input, left = listOf(send, suggestionButton(input, suggestionLines, session.type.term)), right = emptyList()), BorderLayout.CENTER)
+            add(editor(input, left = listOf(send, suggestionButton(input, suggestionLines, session.type)), right = emptyList()), BorderLayout.CENTER)
         }
         popup = build(panel, input, where, onClosed)
         popup.show(at)
@@ -266,12 +266,12 @@ object ThreadPopup {
      * "Suggest a change" — like GitLab's "Insert suggestion": inserts a ```suggestion block with the
      * current lines at the caret and selects them for editing. Hidden when a suggestion is impossible.
      */
-    private fun suggestionButton(input: JBTextArea, lines: List<String>?, term: String): JButton =
+    private fun suggestionButton(input: JBTextArea, lines: List<String>?, type: HostingType): JButton =
         JButton(msg("popup.suggest"), AllIcons.Actions.IntentionBulb).apply {
-            isVisible = !lines.isNullOrEmpty()
-            toolTipText = msg("popup.suggest.tooltip", term)
+            isVisible = type.canSuggest && !lines.isNullOrEmpty()
+            toolTipText = msg("popup.suggest.tooltip", type.term)
             addActionListener {
-                val block = Suggestion.block(lines ?: return@addActionListener)
+                val block = Suggestion.block(lines ?: return@addActionListener, gitlab = type == HostingType.GITLAB)
                 val caret = input.caretPosition
                 val before = input.text.substring(0, caret)
                 val prefix = if (before.isEmpty() || before.endsWith("\n")) "" else "\n"

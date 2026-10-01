@@ -69,6 +69,12 @@ class DiffLineMap(diff: String) {
     fun isAdded(newLine: Int) = newLine in added
     fun isRemoved(oldLine: Int) = oldLine in removed
 
+    /** Whether [line] lies in a hunk — GitHub and Bitbucket accept comments only on such lines. */
+    fun inHunk(line: Int, onNewSide: Boolean): Boolean = hunks.any { h ->
+        if (onNewSide) line >= h.newStart && line < h.newStart + h.newCount
+        else line >= h.oldStart && line < h.oldStart + h.oldCount
+    }
+
     /** Old line for a new-side line that is not added (context or untouched). */
     fun oldFor(newLine: Int): Int? {
         if (newLine in added) return null

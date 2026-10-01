@@ -31,21 +31,27 @@ enum class HostingType(
     /** The only server of a cloud service; null — the user enters the address. */
     val fixedUrl: String?,
 ) {
-    GITLAB("GitLab", '!', "MR", MrFilter.entries, canSuggest = true, commentsOutsideHunks = true, usernameLabel = null, fixedUrl = null);
+    GITLAB("GitLab", '!', "MR", MrFilter.entries, canSuggest = true, commentsOutsideHunks = true, usernameLabel = null, fixedUrl = null),
+    GITHUB("GitHub", '#', "PR", MrFilter.entries, canSuggest = true, commentsOutsideHunks = false, usernameLabel = null, fixedUrl = null);
 
     fun client(c: Connection, token: String): HostingClient = when (this) {
         GITLAB -> GitLabClient(c.url, token)
+        GITHUB -> GitHubClient(c.url, token)
     }
 
     fun tokenPageUrl(url: String): String = when (this) {
         GITLAB -> "$url/-/user_settings/personal_access_tokens?name=MR+Navigator&scopes=api"
+        GITHUB -> "$url/settings/tokens/new?description=MR%20Navigator&scopes=repo"
     }
 
     override fun toString() = title
 
     companion object {
         /** Type of a server by its host name: the form's first guess for a new connection. */
-        fun guess(host: String): HostingType = GITLAB
+        fun guess(host: String): HostingType = when {
+            "github" in host -> GITHUB
+            else -> GITLAB
+        }
     }
 }
 

@@ -193,6 +193,8 @@ class LogicTest {
         assertTrue(fenced.text.startsWith("`````suggestion:-2+0\n"), fenced.text)
         assertTrue(fenced.text.endsWith("\n`````"))
         assertEquals("````", Suggestion.fence("a ``` b ```` c").dropLast(1))
+        // GitHub: the range comes from the comment itself.
+        assertEquals("```suggestion\na\nb\n```", Suggestion.block(listOf("a", "b"), gitlab = false).text)
     }
 
     @Test
