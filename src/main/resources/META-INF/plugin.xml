@@ -1,4 +1,5 @@
-<idea-plugin>
+<!-- Updates need an IDE restart: a reload on the fly kept classes of the old version alive (no diff markers). -->
+<idea-plugin require-restart="true">
     <id>me.brekhin.mr-navigator</id>
     <name>MR Navigator</name>
     <vendor url="https://github.com/MrKamenAdmin/mr-navigator">Aleksandr Brekhin</vendor>

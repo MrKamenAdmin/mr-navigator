@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- The icon of a multi-line thread is on the first line of the commented code, not on the last.
+- Installing or updating the plugin asks for an IDE restart: updating on the fly could leave the diff without comment markers.
+
 ## 0.3.1
 
 - GitHub and Bitbucket: a multi-line comment stays within one diff hunk; a range across two hunks is refused with an explanation instead of a server error.
