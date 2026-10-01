@@ -62,13 +62,7 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
 
     override fun mergeRequest(project: ProjectRef, iid: Long): MergeRequest {
         val m = get("${repo(project)}/pulls/$iid").obj()
-        val base = m.o("base")?.str("sha")
-        val head = m.o("head")?.str("sha")
-        // The PR diff is against the merge base, not the target branch head.
-        val mergeBase = if (base != null && head != null) {
-            get("${repo(project)}/compare/$base...$head?per_page=1").obj().o("merge_base_commit")?.str("sha")
-        } else null
-        return parsePull(m, mergeBase)
+        return parsePull(m, mergeBase(repo(project), m.o("base")?.str("sha"), m.o("head")?.str("sha")) { get(it) })
     }
 
     override fun changes(project: ProjectRef, mr: MergeRequest): List<FileChange> =
@@ -144,6 +138,19 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
 
         internal fun apiUrl(serverUrl: String): String =
             serverUrl.trimEnd('/').let { if (it.substringAfter("://") == "github.com") GITHUB_API else "$it/api/v3" }
+
+        /**
+         * The PR diff is against the merge base, not the target branch head. A failed compare leaves it
+         * unknown instead of failing the whole pull request: the card, comments and approve still work.
+         */
+        internal fun mergeBase(repo: String, base: String?, head: String?, get: (String) -> Any?): String? {
+            if (base == null || head == null) return null
+            return try {
+                get("$repo/compare/$base...$head?per_page=1").obj().o("merge_base_commit")?.str("sha")
+            } catch (e: ApiException) {
+                null
+            }
+        }
 
         internal fun nextLink(link: String?): String? =
             link?.split(',')?.firstOrNull { it.contains("rel=\"next\"") }?.substringAfter('<')?.substringBefore('>')

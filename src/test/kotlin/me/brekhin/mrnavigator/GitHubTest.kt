@@ -1,5 +1,6 @@
 package me.brekhin.mrnavigator
 
+import me.brekhin.mrnavigator.api.ApiException
 import me.brekhin.mrnavigator.api.DiffRefs
 import me.brekhin.mrnavigator.api.GitHubClient
 import me.brekhin.mrnavigator.api.HostingType
@@ -33,6 +34,18 @@ class GitHubTest {
         assertEquals("alice", mr.author?.username)
         assertNull(GitHubClient.parsePull(m, null).diffRefs)
         assertEquals("merged", GitHubClient.parsePull(obj("""{"number":1,"state":"closed","merged_at":"2026-09-30T10:00:00Z"}"""), null).state)
+    }
+
+    @Test
+    fun mergeBase() {
+        val repo = "/repos/o/r"
+        assertEquals("mb", GitHubClient.mergeBase(repo, "b1", "h1") { path ->
+            assertEquals("$repo/compare/b1...h1?per_page=1", path)
+            obj("""{"merge_base_commit":{"sha":"mb"}}""")
+        })
+        // A failed compare leaves the refs unknown instead of failing the whole pull request.
+        assertNull(GitHubClient.mergeBase(repo, "b1", "h1") { throw ApiException("GitHub: error 500", 500) })
+        assertNull(GitHubClient.mergeBase(repo, null, "h1") { error("not called") })
     }
 
     @Test
