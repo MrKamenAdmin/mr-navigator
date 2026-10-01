@@ -19,6 +19,7 @@ import com.intellij.ui.components.panels.VerticalLayout
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import me.brekhin.mrnavigator.api.Discussion
+import me.brekhin.mrnavigator.api.HostingType
 import me.brekhin.mrnavigator.api.Note
 import me.brekhin.mrnavigator.api.Position
 import me.brekhin.mrnavigator.core.MrReviewService
@@ -26,6 +27,7 @@ import me.brekhin.mrnavigator.core.MrSession
 import me.brekhin.mrnavigator.util.Markdown
 import me.brekhin.mrnavigator.util.Suggestion
 import me.brekhin.mrnavigator.util.TimeAgo
+import me.brekhin.mrnavigator.util.msg
 import java.awt.BorderLayout
 import java.awt.Container
 import java.awt.Dimension
@@ -44,8 +46,6 @@ import javax.swing.SwingConstants
 import javax.swing.event.HyperlinkEvent
 import kotlin.math.max
 import kotlin.math.min
-import me.brekhin.mrnavigator.util.msg
-import me.brekhin.mrnavigator.api.HostingType
 
 /** Popup with a comment thread (read, reply, resolve) or with a form for a new comment. */
 object ThreadPopup {

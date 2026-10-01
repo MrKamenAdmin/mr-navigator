@@ -1,43 +1,33 @@
 package me.brekhin.mrnavigator.ui
 
-import com.intellij.ide.BrowserUtil
 import com.intellij.ide.ui.laf.darcula.ui.DarculaButtonUI
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBPasswordField
-import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.AlignX
-import com.intellij.ui.dsl.builder.COLUMNS_LARGE
-import com.intellij.ui.dsl.builder.columns
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
-import me.brekhin.mrnavigator.api.GitLabClient
+import me.brekhin.mrnavigator.api.Connection
 import me.brekhin.mrnavigator.core.MrReviewService
 import me.brekhin.mrnavigator.settings.MrReviewConfigurable
-import me.brekhin.mrnavigator.settings.MrReviewSettings
 import me.brekhin.mrnavigator.util.Markdown
+import me.brekhin.mrnavigator.util.msg
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.Rectangle
-import java.net.URLEncoder
 import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.Scrollable
-import me.brekhin.mrnavigator.util.msg
 
 /**
- * Shown instead of the MR list until the plugin is connected: GitLab address (suggested from
- * the project's git remotes), a personal access token with a link to create one, "Connect".
+ * Shown instead of the list until the project's repository has a connection: hosting and address
+ * (guessed from the git remotes), a token with a link to create one, "Connect".
  */
 class SetupPanel(private val project: Project, private val onConnected: () -> Unit) : JPanel(BorderLayout()), Scrollable {
-    private val settings = MrReviewSettings.getInstance()
-
-    private lateinit var urlField: JBTextField
-    private lateinit var tokenField: JBPasswordField
+    private val form = ConnectionForm()
     private lateinit var connectButton: JButton
     // HTML labels wrap to the width they get (the panel follows the tool window width, see Scrollable below).
     private val status = JBLabel()
@@ -45,24 +35,12 @@ class SetupPanel(private val project: Project, private val onConnected: () -> Un
     private val detected = JBLabel().apply { foreground = UIUtil.getContextHelpForeground() }
 
     init {
-        val form = panel {
-            row {
-                label(msg("setup.title")).applyToComponent { font = JBFont.h3().asBold() }
-            }
-            row {
-                text(msg("setup.intro"))
-            }
+        val content = panel {
+            row { label(msg("setup.title")).applyToComponent { font = JBFont.h3().asBold() } }
+            row { text(msg("setup.intro")) }
             row { cell(reason).align(AlignX.FILL) }
-            row(msg("setup.url")) {
-                urlField = textField().columns(COLUMNS_LARGE).component
-            }
-            row("") { cell(detected) }
-            row(msg("setup.token")) {
-                tokenField = passwordField().columns(COLUMNS_LARGE).component
-            }
-            row("") {
-                link(msg("setup.createToken")) { BrowserUtil.browse(tokenPageUrl()) }
-            }
+            row { cell(detected) }
+            form.addTo(this) { connect() }
             row {
                 connectButton = button(msg("setup.connect")) { connect() }
                     .applyToComponent { putClientProperty(DarculaButtonUI.DEFAULT_STYLE_KEY, true) }
@@ -76,60 +54,42 @@ class SetupPanel(private val project: Project, private val onConnected: () -> Un
                 }
             }
         }
-        form.border = JBUI.Borders.empty(16)
-        add(form, BorderLayout.NORTH)
-        tokenField.addActionListener { connect() }
+        content.border = JBUI.Borders.empty(16)
+        add(content, BorderLayout.NORTH)
     }
 
-    /** Fills the form: [why] explains what is missing; the address is guessed from git remotes. */
-    fun prepare(why: String?) {
+    /** [why] explains what is missing; [connection] — the one to fix, otherwise the form is guessed from git remotes. */
+    fun prepare(why: String?, connection: Connection?) {
         reason.text = why?.let { "<html>${Markdown.escape(it)}</html>" }.orEmpty()
         reason.isVisible = !why.isNullOrBlank()
         status.text = ""
-        urlField.text = settings.serverUrl
         detected.text = ""
+        form.fill(connection)
+        if (connection != null) return
         ApplicationManager.getApplication().executeOnPooledThread {
-            val servers = MrReviewService.getInstance(project).detectedServers()
+            val hosts = MrReviewService.getInstance(project).detectedHosts()
             ApplicationManager.getApplication().invokeLater({
-                if (servers.isEmpty()) return@invokeLater
-                detected.text = msg("setup.detected", servers.joinToString())
-                // The default gitlab.com is almost certainly wrong for a company repo — suggest the remote's host.
-                if (settings.serverUrl == "https://gitlab.com" && servers.first() != "https://gitlab.com") {
-                    urlField.text = servers.first()
-                }
+                if (hosts.isEmpty()) return@invokeLater
+                detected.text = msg("setup.detected", hosts.joinToString())
+                form.fill(null, hosts.first())
             }, { project.isDisposed })
         }
     }
 
-    private fun serverUrl() = urlField.text.trim().trimEnd('/').let { if (it.contains("://")) it else "https://$it" }
-
-    private fun tokenPageUrl(): String {
-        val name = URLEncoder.encode("MR Navigator", Charsets.UTF_8)
-        return "${serverUrl()}/-/user_settings/personal_access_tokens?name=$name&scopes=api"
-    }
-
     private fun connect() {
-        val url = serverUrl()
-        val token = String(tokenField.password).trim()
-        if (token.isEmpty()) {
-            showError(msg("setup.pasteToken"))
-            return
-        }
+        form.validate()?.let { showError(it); return }
+        val c = form.connection()
+        val token = form.token()
         connectButton.isEnabled = false
         status.foreground = UIUtil.getContextHelpForeground()
         status.text = msg("setup.checking")
-        Bg.run(project, msg("setup.task", "GitLab"), work = {
-            val user = GitLabClient(url, token).currentUser()
-            settings.serverUrl = url
-            settings.setToken(token, url)
-            user
-        }, onError = {
+        Bg.run(project, msg("setup.task", c.type.title), work = { ConnectionForm.verifyAndSave(c, token) }, onError = {
             connectButton.isEnabled = true
             showError(it.message ?: it.toString())
         }) { user ->
             connectButton.isEnabled = true
-            tokenField.text = ""
-            Notify.info(project, msg("setup.connected", "GitLab", user.name, user.username))
+            form.clearToken()
+            Notify.info(project, msg("setup.connected", c.type.title, user.name, user.username))
             onConnected()
         }
     }

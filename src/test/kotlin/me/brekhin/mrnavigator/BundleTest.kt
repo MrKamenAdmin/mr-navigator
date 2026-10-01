@@ -75,4 +75,24 @@ class BundleTest {
         }.toList()
         assertEquals(emptyList(), offenders)
     }
+
+    @Test
+    fun everyHostingHasItsStrings() {
+        for (lang in listOf("en", "ru")) {
+            MrBundle.locale = Locale.forLanguageTag(lang)
+            for (t in me.brekhin.mrnavigator.api.HostingType.entries) {
+                MrBundle.message("connection.hint.${t.name}")
+                t.usernameLabel?.let { MrBundle.message(it) }
+            }
+        }
+    }
+
+    @Test
+    fun everyKeyUsedInCodeExists() {
+        val call = Regex("""msg\("([a-zA-Z0-9.]+)"""")
+        val missing = java.io.File("src/main/kotlin").walk().filter { it.extension == "kt" }
+            .flatMap { f -> call.findAll(f.readText()).map { it.groupValues[1] } }
+            .filter { it !in en.stringPropertyNames() }.toSet()
+        assertEquals(emptySet(), missing)
+    }
 }

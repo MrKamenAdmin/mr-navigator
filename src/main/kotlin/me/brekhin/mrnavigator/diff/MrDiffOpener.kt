@@ -23,8 +23,8 @@ import me.brekhin.mrnavigator.api.FileChange
 import me.brekhin.mrnavigator.core.MrReviewService
 import me.brekhin.mrnavigator.core.MrSession
 import me.brekhin.mrnavigator.ui.Bg
-import java.io.File
 import me.brekhin.mrnavigator.util.msg
+import java.io.File
 
 /** Attached to every diff request we open, so [MrDiffExtension] knows what it is looking at. */
 class MrFileContext(

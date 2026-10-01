@@ -14,9 +14,9 @@ import me.brekhin.mrnavigator.git.GitException
 import me.brekhin.mrnavigator.git.RemoteUrl
 import me.brekhin.mrnavigator.git.RepoScanner
 import me.brekhin.mrnavigator.settings.MrReviewSettings
+import me.brekhin.mrnavigator.util.msg
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
-import me.brekhin.mrnavigator.util.msg
 
 /** Everything loaded for one opened merge request. */
 class MrSession(
@@ -68,8 +68,8 @@ data class CheckoutState(
 /** Where to go back after reviewing. */
 data class ReturnPoint(val iid: Long, val ref: String, val stashMarker: String?, val root: File)
 
-/** A git repository of the IDE project whose remote points at the configured GitLab. */
-class Repo(val root: File, val name: String, val remoteName: String, val project: ProjectRef) {
+/** A git repository of the IDE project whose remote points at one of the connected servers. */
+class Repo(val root: File, val name: String, val remoteName: String, val project: ProjectRef, val connection: Connection) {
     override fun toString() = name
     override fun equals(other: Any?) = other is Repo && other.root == root && other.project == project
     override fun hashCode() = root.hashCode()
@@ -77,8 +77,11 @@ class Repo(val root: File, val name: String, val remoteName: String, val project
 
 class MrException(message: String) : Exception(message)
 
-/** The plugin is not connected yet (no token, or the configured server does not match the project's remote). */
-class SetupNeeded(message: String?) : Exception(message)
+/**
+ * Nothing is connected yet (null message), no token, the token is rejected, or no remote matches a connection;
+ * [connection] — the one to fix.
+ */
+class SetupNeeded(message: String?, val connection: Connection? = null) : Exception(message)
 
 @Service(Service.Level.PROJECT)
 class MrReviewService(private val ideProject: Project) {
@@ -88,7 +91,6 @@ class MrReviewService(private val ideProject: Project) {
     private val returnPoints = java.util.concurrent.ConcurrentHashMap<File, ReturnPoint>()
 
     fun returnPointFor(s: MrSession?): ReturnPoint? = s?.let { returnPoints[it.git.root] }
-    @Volatile private var cachedUser: Pair<String, User>? = null
 
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
@@ -104,18 +106,23 @@ class MrReviewService(private val ideProject: Project) {
 
     // ------------------------------------------------------------ discovery
 
-    class Located(val git: GitCli, val remoteName: String, val project: ProjectRef)
+    /** Repositories found for the connections they were matched against (cleared when those change). */
+    @Volatile private var reposCache: Pair<List<Connection>, List<Repo>>? = null
 
-    /** Repositories found for the server they were matched against (cleared when it changes). */
-    @Volatile private var reposCache: Pair<String, List<Repo>>? = null
+    /** Current user per connection URL. */
+    private val users = java.util.concurrent.ConcurrentHashMap<String, User>()
 
     /**
-     * Git repositories of the IDE project that point at the configured GitLab: the one the project
-     * folder is in and the ones inside it (a folder with several repos). Blocking.
+     * Git repositories of the IDE project whose remote points at one of the connected servers: the one
+     * the project folder is in and the ones inside it (a folder with several repos). Blocking.
      */
     fun repositories(refresh: Boolean = false): List<Repo> {
-        val server = MrReviewSettings.getInstance().serverUrl
-        if (!refresh) reposCache?.let { (s, list) -> if (s == server) return list }
+        val settings = MrReviewSettings.getInstance()
+        settings.migrateLegacy()
+        val connections = settings.connections
+        if (refresh) users.clear()
+        if (!refresh) reposCache?.let { (c, list) -> if (c == connections) return list }
+        if (connections.isEmpty()) throw SetupNeeded(null)
 
         val base = File(ideProject.basePath ?: throw MrException(msg("error.noProjectDir")))
         val roots = RepoScanner.find(base)
@@ -130,14 +137,14 @@ class MrReviewService(private val ideProject: Project) {
             }
             remotes.values.mapNotNullTo(hosts) { RemoteUrl.parse(it)?.host }
             remotes.entries.sortedBy { if (it.key == "origin") 0 else 1 }.firstNotNullOfOrNull { (name, url) ->
-                val path = RemoteUrl.parse(url)?.let { RemoteUrl.projectPath(it, server) }
-                path?.let { Repo(root, RepoScanner.displayName(base, root), name, ProjectRef(server, it)) }
+                val remote = RemoteUrl.parse(url) ?: return@firstNotNullOfOrNull null
+                connections.firstNotNullOfOrNull { c ->
+                    RemoteUrl.projectPath(remote, c)?.let { Repo(root, RepoScanner.displayName(base, root), name, ProjectRef(c.url, it), c) }
+                }
             }
         }
-        if (repos.isEmpty()) {
-            throw SetupNeeded(msg("error.noRemote", server, if (hosts.isNotEmpty()) msg("error.noRemote.hosts", hosts.joinToString()) else ""))
-        }
-        reposCache = server to repos
+        if (repos.isEmpty()) throw SetupNeeded(msg("error.noRemote", connections.joinToString { it.url }, hosts.joinToString()))
+        reposCache = connections to repos
         return repos
     }
 
@@ -153,50 +160,38 @@ class MrReviewService(private val ideProject: Project) {
         PropertiesComponent.getInstance(ideProject).setValue(repoKey, repo.root.path)
     }
 
-    /** Repository, remote and GitLab project to work with (the selected repository). Blocking. */
-    fun locate(): Located {
-        val repo = selectedRepo(repositories())
-        return Located(GitCli(repo.root), repo.remoteName, repo.project)
-    }
-
-    /** "https://host" for every git remote of the project, origin first — suggestions for the setup form. Blocking. */
-    fun detectedServers(): List<String> = try {
+    /** Hosts of the project's git remotes, origin first — suggestions for the setup form. Blocking. */
+    fun detectedHosts(): List<String> = try {
         val base = ideProject.basePath?.let { File(it) }
         val roots = base?.let { RepoScanner.find(it) }.orEmpty()
         roots.flatMap { root ->
             GitCli(root).remotes().entries.sortedBy { if (it.key == "origin") 0 else 1 }.mapNotNull { RemoteUrl.parse(it.value)?.host }
-        }.distinct().map { "https://$it" }
+        }.distinct()
     } catch (e: Exception) {
         emptyList()
     }
 
-    fun client(): HostingClient {
-        val settings = MrReviewSettings.getInstance()
-        val token = settings.getToken() ?: throw SetupNeeded(null)
-        return GitLabClient(settings.serverUrl, token)
+    fun client(c: Connection): HostingClient {
+        val token = MrReviewSettings.getInstance().getToken(c.url) ?: throw SetupNeeded(msg("error.noToken", c.url), c)
+        return c.type.client(c, token)
     }
 
-    fun currentUser(client: HostingClient): User {
-        val server = MrReviewSettings.getInstance().serverUrl
-        cachedUser?.let { (s, u) -> if (s == server) return u }
-        return client.currentUser().also { cachedUser = server to it }
-    }
+    fun currentUser(c: Connection, client: HostingClient): User = users.getOrPut(c.url) { client.currentUser() }
 
     /** Current user if already known (no network). */
-    fun currentUserCached(): User? = cachedUser?.second
+    fun currentUserCached(c: Connection): User? = users[c.url]
 
     // --------------------------------------------------------------- loading
 
     fun loadSession(mr: MergeRequest): MrSession {
-        val located = locate()
-        val client = client()
-        runCatching { currentUser(client) }
-        val full = client.mergeRequest(located.project, mr.iid)
-        val changes = client.changes(located.project, full)
-        val discussions = client.discussions(located.project, full)
-        val approved = client.approvedBy(located.project, full)
-        val connection = Connection(HostingType.GITLAB, MrReviewSettings.getInstance().serverUrl)
-        val s = MrSession(located.project, connection, located.git, located.remoteName, full, changes, discussions, approved)
+        val repo = selectedRepo(repositories())
+        val client = client(repo.connection)
+        runCatching { currentUser(repo.connection, client) }
+        val full = client.mergeRequest(repo.project, mr.iid)
+        val changes = client.changes(repo.project, full)
+        val discussions = client.discussions(repo.project, full)
+        val approved = client.approvedBy(repo.project, full)
+        val s = MrSession(repo.project, repo.connection, GitCli(repo.root), repo.remoteName, full, changes, discussions, approved)
         loadViewed(s)
         session = s
         fireChanged()
@@ -223,12 +218,12 @@ class MrReviewService(private val ideProject: Project) {
     }
 
     fun refreshDiscussions(s: MrSession) {
-        s.discussions = client().discussions(s.project, s.mr)
+        s.discussions = client(s.connection).discussions(s.project, s.mr)
         fireChanged()
     }
 
     fun refreshApprovals(s: MrSession) {
-        s.approvedBy = client().approvedBy(s.project, s.mr)
+        s.approvedBy = client(s.connection).approvedBy(s.project, s.mr)
         fireChanged()
     }
 
@@ -339,22 +334,22 @@ class MrReviewService(private val ideProject: Project) {
     // ----------------------------------------------------------- comments
 
     fun postComment(s: MrSession, body: String, position: Position?) {
-        client().createDiscussion(s.project, s.mr, body, position)
+        client(s.connection).createDiscussion(s.project, s.mr, body, position)
         refreshDiscussions(s)
     }
 
     fun reply(s: MrSession, d: Discussion, body: String) {
-        client().reply(s.project, s.mr, d, body)
+        client(s.connection).reply(s.project, s.mr, d, body)
         refreshDiscussions(s)
     }
 
     fun setResolved(s: MrSession, d: Discussion, resolved: Boolean) {
-        client().resolve(s.project, s.mr, d, resolved)
+        client(s.connection).resolve(s.project, s.mr, d, resolved)
         refreshDiscussions(s)
     }
 
     fun applySuggestions(s: MrSession, ids: List<Long>) {
-        client().applySuggestions(ids)
+        client(s.connection).applySuggestions(ids)
         refreshDiscussions(s)
     }
 

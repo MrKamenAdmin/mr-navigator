@@ -1,5 +1,7 @@
 package me.brekhin.mrnavigator.git
 
+import me.brekhin.mrnavigator.api.Connection
+
 /** Host and project path parsed from a git remote URL. */
 data class RemoteUrl(val host: String, val path: String) {
     companion object {
@@ -37,10 +39,10 @@ data class RemoteUrl(val host: String, val path: String) {
         fun serverPathPrefix(serverUrl: String): String =
             serverUrl.trim().substringAfter("://").substringAfter('/', "").trim('/')
 
-        /** GitLab project path for [remote] on [serverUrl], or null if the remote is on another host. */
-        fun projectPath(remote: RemoteUrl, serverUrl: String): String? {
-            if (remote.host != serverHost(serverUrl)) return null
-            val prefix = serverPathPrefix(serverUrl)
+        /** Project path for [remote] on the server of [c], or null if the remote is on another host. */
+        fun projectPath(remote: RemoteUrl, c: Connection): String? {
+            if (remote.host != serverHost(c.url)) return null
+            val prefix = serverPathPrefix(c.url)
             val path = if (prefix.isNotEmpty() && remote.path.startsWith("$prefix/")) remote.path.removePrefix("$prefix/") else remote.path
             return path.takeIf { it.contains('/') }
         }

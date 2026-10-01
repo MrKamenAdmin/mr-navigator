@@ -20,8 +20,36 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import me.brekhin.mrnavigator.api.Connection
+import me.brekhin.mrnavigator.api.HostingType
+import me.brekhin.mrnavigator.settings.MrReviewSettings
 
 class LogicTest {
+    private fun gitlab(url: String) = Connection(HostingType.GITLAB, url)
+
+    @Test
+    fun connectionsSettings() {
+        val s = MrReviewSettings()
+        val list = listOf(Connection(HostingType.GITLAB, "https://gitlab.com"), Connection(HostingType.GITLAB, "https://git.corp", "me"))
+        s.connections = list
+        assertEquals(list, s.connections)
+        // A type this version doesn't know (settings of a newer plugin) is skipped, not fatal.
+        s.loadState(MrReviewSettings.State().apply {
+            connections.add(MrReviewSettings.ConnectionState().apply { type = "FUTURE"; url = "https://x" })
+        })
+        assertTrue(s.connections.isEmpty())
+    }
+
+    @Test
+    fun legacySettings() {
+        // Pre-0.3 settings: one GitLab server, gitlab.com by default.
+        assertEquals(Connection(HostingType.GITLAB, "https://gitlab.com"), MrReviewSettings.legacyConnection(MrReviewSettings.State()))
+        val custom = MrReviewSettings.State().apply { serverUrl = "https://git.corp/ " }
+        assertEquals(Connection(HostingType.GITLAB, "https://git.corp"), MrReviewSettings.legacyConnection(custom))
+        val migrated = MrReviewSettings.State().apply { connections.add(MrReviewSettings.ConnectionState()) }
+        assertNull(MrReviewSettings.legacyConnection(migrated))
+    }
+
     @Test
     fun remoteUrls() {
         assertEquals(RemoteUrl("gitlab.com", "group/sub/proj"), RemoteUrl.parse("git@gitlab.com:group/sub/proj.git"))
@@ -29,9 +57,9 @@ class LogicTest {
         assertEquals(RemoteUrl("git.corp.ru", "team/api"), RemoteUrl.parse("https://user:tok@git.corp.ru:8443/team/api"))
         assertEquals(RemoteUrl("git.corp.ru", "team/api"), RemoteUrl.parse("ssh://git@git.corp.ru:2222/team/api.git"))
         assertNull(RemoteUrl.parse("https://git.corp.ru/onlyone"))
-        assertEquals("team/api", RemoteUrl.projectPath(RemoteUrl.parse("https://host/gitlab/team/api.git")!!, "https://host/gitlab/"))
-        assertEquals("team/api", RemoteUrl.projectPath(RemoteUrl.parse("git@host:team/api.git")!!, "https://host/gitlab"))
-        assertNull(RemoteUrl.projectPath(RemoteUrl.parse("git@other:team/api.git")!!, "https://host"))
+        assertEquals("team/api", RemoteUrl.projectPath(RemoteUrl.parse("https://host/gitlab/team/api.git")!!, gitlab("https://host/gitlab/")))
+        assertEquals("team/api", RemoteUrl.projectPath(RemoteUrl.parse("git@host:team/api.git")!!, gitlab("https://host/gitlab")))
+        assertNull(RemoteUrl.projectPath(RemoteUrl.parse("git@other:team/api.git")!!, gitlab("https://host")))
     }
 
     @Test

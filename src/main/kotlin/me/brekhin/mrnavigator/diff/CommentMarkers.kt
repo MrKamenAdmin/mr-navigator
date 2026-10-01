@@ -27,11 +27,11 @@ import me.brekhin.mrnavigator.core.MrReviewService
 import me.brekhin.mrnavigator.core.MrSession
 import me.brekhin.mrnavigator.ui.Notify
 import me.brekhin.mrnavigator.ui.ThreadPopup
+import me.brekhin.mrnavigator.util.msg
 import java.awt.Color
 import java.awt.Point
 import javax.swing.SwingUtilities
 import javax.swing.Icon
-import me.brekhin.mrnavigator.util.msg
 
 /**
  * Converts between editor lines and file lines (0-based) of a diff editor.

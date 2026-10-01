@@ -9,6 +9,7 @@ import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.tree.TreeUtil
 import me.brekhin.mrnavigator.api.FileChange
 import me.brekhin.mrnavigator.core.HiddenFiles
+import me.brekhin.mrnavigator.util.msg
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
@@ -16,7 +17,6 @@ import java.awt.event.MouseEvent
 import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
-import me.brekhin.mrnavigator.util.msg
 
 /**
  * Tree of MR files grouped by folders. Hidden files are left out (unless [showHidden]),

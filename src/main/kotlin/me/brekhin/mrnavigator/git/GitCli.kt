@@ -4,11 +4,11 @@ import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.util.ExecUtil
 import com.intellij.openapi.diagnostic.Logger
 import me.brekhin.mrnavigator.settings.MrReviewSettings
+import me.brekhin.mrnavigator.util.msg
 import java.io.File
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
-import me.brekhin.mrnavigator.util.msg
 
 class GitException(message: String) : IOException(message)
 

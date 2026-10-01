@@ -5,10 +5,12 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.ui.DialogPanel
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.ThrowableComputable
-import com.intellij.ui.components.JBPasswordField
-import com.intellij.ui.components.JBTextField
+import com.intellij.ui.CollectionListModel
+import com.intellij.ui.ToolbarDecorator
+import com.intellij.ui.components.JBList
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.COLUMNS_LARGE
 import com.intellij.ui.dsl.builder.bindItem
@@ -19,45 +21,45 @@ import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.builder.rows
 import com.intellij.ui.dsl.builder.toNullableProperty
 import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
-import me.brekhin.mrnavigator.api.GitLabClient
+import me.brekhin.mrnavigator.api.ApiException
+import me.brekhin.mrnavigator.api.Connection
+import me.brekhin.mrnavigator.ui.ConnectionForm
 import me.brekhin.mrnavigator.util.msg
+import javax.swing.JComponent
 
 /** Settings → Tools → MR Navigator */
 class MrReviewConfigurable : BoundConfigurable("MR Navigator") {
     private val settings = MrReviewSettings.getInstance()
 
-    private var token: String = ""
     private var suffixesText: String = ""
-    private lateinit var urlField: JBTextField
-    private lateinit var tokenField: JBPasswordField
+    // Connections are saved right away, with their tokens — not on Apply.
+    private val connections = CollectionListModel<Connection>()
+    private val list = JBList(connections).apply {
+        emptyText.text = msg("settings.noConnections")
+        cellRenderer = textListCellRenderer { c -> listOfNotNull(c.type.title, c.url, c.username).joinToString(" · ") }
+    }
 
     override fun createPanel(): DialogPanel {
         suffixesText = settings.hiddenSuffixes.joinToString("\n")
-        // The password storage may be slow (OS keychain) — read it off the EDT.
-        val server = settings.serverUrl
+        connections.replaceAll(settings.connections)
+        // Migrating pre-0.3 settings reads the password storage (OS keychain) — off the EDT.
         ApplicationManager.getApplication().executeOnPooledThread {
-            val stored = settings.getToken(server).orEmpty()
-            ApplicationManager.getApplication().invokeLater({
-                if (::tokenField.isInitialized && String(tokenField.password).isEmpty()) {
-                    token = stored
-                    tokenField.text = stored
-                }
-            }, ModalityState.any())
+            settings.migrateLegacy()
+            ApplicationManager.getApplication().invokeLater({ connections.replaceAll(settings.connections) }, ModalityState.any())
         }
 
         return panel {
-            group("GitLab") {
-                row(msg("settings.server")) {
-                    urlField = textField().bindText(settings::serverUrl).columns(COLUMNS_LARGE)
-                        .comment(msg("settings.server.comment")).component
-                }
-                row(msg("settings.token")) {
-                    tokenField = passwordField().bindText(::token).columns(COLUMNS_LARGE)
-                        .comment(msg("settings.token.comment")).component
-                }
+            group(msg("settings.connections")) {
                 row {
-                    button(msg("settings.check")) { testConnection() }
+                    cell(
+                        ToolbarDecorator.createDecorator(list)
+                            .setAddAction { addConnection() }
+                            .setRemoveAction { removeConnection() }
+                            .disableUpDownActions()
+                            .createPanel(),
+                    ).align(AlignX.FILL)
                 }
+                row { button(msg("settings.check")) { checkConnection() } }
             }
             group(msg("settings.hiding")) {
                 row {
@@ -89,28 +91,56 @@ class MrReviewConfigurable : BoundConfigurable("MR Navigator") {
     override fun apply() {
         super.apply()
         settings.hiddenSuffixes = suffixesText.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-        val value = token
-        val server = settings.serverUrl
-        // Synchronously (under a progress) so that the tool window reloading right after sees the new token.
-        ProgressManager.getInstance().runProcessWithProgressSynchronously(
-            Runnable { settings.setToken(value, server) }, msg("settings.savingToken"), false, null,
-        )
     }
 
-    private fun testConnection() {
-        val url = urlField.text.trim().trimEnd('/')
-        val tok = String(tokenField.password).trim()
-        if (url.isEmpty() || tok.isEmpty()) {
-            Messages.showWarningDialog(urlField, msg("settings.fillIn"), "GitLab")
-            return
+    private fun addConnection() {
+        val form = ConnectionForm()
+        val dialog = object : DialogWrapper(list, true) {
+            init {
+                title = msg("settings.addConnection")
+                init()
+            }
+
+            override fun createCenterPanel(): JComponent = panel { form.addTo(this) }.also { form.fill(null) }
+
+            override fun doOKAction() {
+                form.validate()?.let { setErrorText(it); return }
+                val c = form.connection()
+                val token = form.token()
+                try {
+                    ProgressManager.getInstance().runProcessWithProgressSynchronously(
+                        ThrowableComputable { ConnectionForm.verifyAndSave(c, token) }, msg("connection.checking"), true, null,
+                    )
+                    super.doOKAction()
+                } catch (e: Exception) {
+                    setErrorText(e.message ?: e.toString())
+                }
+            }
         }
+        if (dialog.showAndGet()) connections.replaceAll(settings.connections)
+    }
+
+    private fun removeConnection() {
+        val c = list.selectedValue ?: return
+        ProgressManager.getInstance().runProcessWithProgressSynchronously(
+            Runnable { settings.removeConnection(c) }, msg("settings.removing"), false, null,
+        )
+        connections.replaceAll(settings.connections)
+    }
+
+    private fun checkConnection() {
+        val c = list.selectedValue ?: return Messages.showInfoMessage(list, msg("settings.selectConnection"), "MR Navigator")
         try {
             val user = ProgressManager.getInstance().runProcessWithProgressSynchronously(
-                ThrowableComputable { GitLabClient(url, tok).currentUser() }, msg("settings.checking"), true, null,
+                ThrowableComputable {
+                    val token = settings.getToken(c.url) ?: throw ApiException(msg("error.noToken", c.url))
+                    c.type.client(c, token).currentUser()
+                },
+                msg("connection.checking"), true, null,
             )
-            Messages.showInfoMessage(urlField, msg("settings.connected", user.name, user.username), "GitLab")
+            Messages.showInfoMessage(list, msg("settings.connected", user.name, user.username), c.type.title)
         } catch (e: Exception) {
-            Messages.showErrorDialog(urlField, e.message ?: e.toString(), "GitLab")
+            Messages.showErrorDialog(list, e.message ?: e.toString(), c.type.title)
         }
     }
 }

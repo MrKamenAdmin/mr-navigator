@@ -18,6 +18,7 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
 import com.intellij.util.ui.JBUI
+import me.brekhin.mrnavigator.api.HostingType
 import me.brekhin.mrnavigator.api.MergeRequest
 import me.brekhin.mrnavigator.api.MrFilter
 import me.brekhin.mrnavigator.api.ApiException
@@ -25,6 +26,8 @@ import me.brekhin.mrnavigator.core.MrReviewService
 import me.brekhin.mrnavigator.core.Repo
 import me.brekhin.mrnavigator.core.SetupNeeded
 import me.brekhin.mrnavigator.settings.MrReviewConfigurable
+import me.brekhin.mrnavigator.util.MrBundle
+import me.brekhin.mrnavigator.util.msg
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.event.KeyAdapter
@@ -35,9 +38,6 @@ import javax.swing.JButton
 import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.ListSelectionModel
-import me.brekhin.mrnavigator.util.msg
-import me.brekhin.mrnavigator.util.MrBundle
-import me.brekhin.mrnavigator.api.HostingType
 
 class MrToolWindowFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -68,7 +68,7 @@ class MrToolWindowPanel(private val project: Project, parent: Disposable) : JPan
         add(repoCombo, BorderLayout.CENTER)
         isVisible = false
     }
-    private var updatingRepos = false
+    private var updating = false
     /** Hosting of the listed repository: numbers and terms in the list and the details follow it. */
     private var currentType = HostingType.GITLAB
 
@@ -106,10 +106,10 @@ class MrToolWindowPanel(private val project: Project, parent: Disposable) : JPan
         add(splitter, CARD_MAIN)
         add(JBScrollPane(setup).apply { border = JBUI.Borders.empty() }, CARD_SETUP)
 
-        filter.addActionListener { reload() }
+        filter.addActionListener { if (!updating) reload() }
         refresh.addActionListener { reload(refreshRepos = true) }
         repoCombo.addActionListener {
-            if (updatingRepos) return@addActionListener
+            if (updating) return@addActionListener
             val repo = repoCombo.selectedItem as? Repo ?: return@addActionListener
             service.selectRepo(repo)
             details.clear()
@@ -130,7 +130,7 @@ class MrToolWindowPanel(private val project: Project, parent: Disposable) : JPan
         reload()
     }
 
-    private class Loaded(val repos: List<Repo>, val repo: Repo, val mrs: List<MergeRequest>)
+    private class Loaded(val repos: List<Repo>, val repo: Repo, val filter: MrFilter, val mrs: List<MergeRequest>)
 
     /** [refreshRepos] — look for repositories again (after "Refresh", setup or settings changes). */
     private fun reload(refreshRepos: Boolean = false) {
@@ -141,14 +141,19 @@ class MrToolWindowPanel(private val project: Project, parent: Disposable) : JPan
         Bg.run(project, msg("list.loadingTask", currentType.term), work = {
             val repos = service.repositories(refreshRepos)
             val repo = service.selectedRepo(repos)
-            val client = service.client()
-            val me = if (f == MrFilter.OPENED || f == MrFilter.MERGED) runCatching { service.currentUser(client) }.getOrNull()
-            else service.currentUser(client)
-            Loaded(repos, repo, client.mergeRequests(repo.project, f, me, query))
+            val c = repo.connection
+            val effective = f.takeIf { it in c.type.filters } ?: MrFilter.OPENED
+            val client = service.client(c)
+            try {
+                val me = if (effective == MrFilter.OPENED || effective == MrFilter.MERGED) runCatching { service.currentUser(c, client) }.getOrNull()
+                else service.currentUser(c, client)
+                Loaded(repos, repo, effective, client.mergeRequests(repo.project, effective, me, query))
+            } catch (e: ApiException) {
+                throw if (e.status == 401) SetupNeeded(msg("list.unauthorized", c.type.title), c) else e
+            }
         }, onError = { e ->
-            val unauthorized = e is ApiException && e.status == 401
-            if (e is SetupNeeded || unauthorized) {
-                setup.prepare(if (unauthorized) msg("list.unauthorized", currentType.title) else e.message)
+            if (e is SetupNeeded) {
+                setup.prepare(e.message, e.connection)
                 showCard(CARD_SETUP)
                 return@run
             }
@@ -160,8 +165,10 @@ class MrToolWindowPanel(private val project: Project, parent: Disposable) : JPan
                 reload(refreshRepos = true)
             }
         }) { loaded ->
+            currentType = loaded.repo.connection.type
             showCard(CARD_MAIN)
             showRepos(loaded.repos, loaded.repo)
+            showFilters(loaded.repo.connection.type.filters, loaded.filter)
             list.emptyText.text = msg("list.empty", currentType.term, loaded.repo.project.path)
             loaded.mrs.forEach { model.addElement(it) }
             // Keep the opened MR selected — but only if it is from this repository.
@@ -171,13 +178,24 @@ class MrToolWindowPanel(private val project: Project, parent: Disposable) : JPan
         }
     }
 
+    /** Bitbucket has no assignees: the filters follow the hosting of the selected repository. */
+    private fun showFilters(filters: List<MrFilter>, selected: MrFilter) {
+        updating = true
+        try {
+            filter.model = DefaultComboBoxModel(filters.toTypedArray())
+            filter.selectedItem = selected
+        } finally {
+            updating = false
+        }
+    }
+
     private fun showRepos(repos: List<Repo>, selected: Repo) {
-        updatingRepos = true
+        updating = true
         try {
             repoCombo.model = DefaultComboBoxModel(repos.toTypedArray())
             repoCombo.selectedItem = selected
         } finally {
-            updatingRepos = false
+            updating = false
         }
         repoRow.isVisible = repos.size > 1
     }
@@ -188,6 +206,7 @@ class MrToolWindowPanel(private val project: Project, parent: Disposable) : JPan
             icon = AllIcons.Nodes.Folder
             append(value.name)
             if (value.name != value.project.path) append("   ${value.project.path}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+            append("   ${value.connection.type.title}", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
         }
     }
 

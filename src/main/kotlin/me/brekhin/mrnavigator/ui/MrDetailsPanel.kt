@@ -237,7 +237,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
     }
 
     private fun isApprovedByMe(s: MrSession): Boolean {
-        val me = runCatching { service.currentUserCached() }.getOrNull() ?: return false
+        val me = service.currentUserCached(s.connection) ?: return false
         return me.username in s.approvedBy
     }
 
@@ -355,7 +355,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         val s = session ?: return
         val approve = !isApprovedByMe(s)
         Bg.run(project, if (approve) msg("details.approve") else msg("details.revokeTask"), work = {
-            val c = service.client()
+            val c = service.client(s.connection)
             if (approve) c.approve(s.project, s.mr) else c.unapprove(s.project, s.mr)
             service.refreshApprovals(s)
         }) { }
