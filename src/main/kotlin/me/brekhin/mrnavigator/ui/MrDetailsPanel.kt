@@ -48,6 +48,8 @@ import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.SwingConstants
 import javax.swing.event.HyperlinkEvent
+import me.brekhin.mrnavigator.util.msg
+import me.brekhin.mrnavigator.api.HostingType
 
 /** Details of the selected MR: actions, files, discussion, description. */
 class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(BorderLayout()) {
@@ -57,23 +59,23 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
     private val meta = JBLabel().apply { foreground = UIUtil.getContextHelpForeground() }
     private val checkoutState = JBLabel()
 
-    private val checkoutButton = JButton("Checkout и ревью", AllIcons.Actions.CheckOut)
-    private val backButton = JButton("Вернуться", AllIcons.Actions.Back)
+    private val checkoutButton = JButton(msg("details.checkout"), AllIcons.Actions.CheckOut)
+    private val backButton = JButton(msg("details.back"), AllIcons.Actions.Back)
     private val approveButton = JButton("Approve")
-    private val browserButton = JButton(AllIcons.General.Web).apply { toolTipText = "Открыть в браузере" }
-    private val refreshButton = JButton(AllIcons.Actions.Refresh).apply { toolTipText = "Обновить MR" }
+    private val browserButton = JButton(AllIcons.General.Web).apply { toolTipText = msg("openInBrowser") }
+    private val refreshButton = JButton(AllIcons.Actions.Refresh)
 
     private val tree = ChangesTree(
         onOpen = { change, files -> openDiff(change, files) },
         onToggleViewed = { change -> session?.let { s -> toggleViewed(s, change) } },
     )
-    private val showHidden = JBCheckBox("Показать скрытые")
+    private val showHidden = JBCheckBox()
     private val filesSummary = JBLabel().apply { foreground = UIUtil.getContextHelpForeground() }
 
     private val threadsModel = DefaultListModel<Discussion>()
     private val threads = JBList(threadsModel)
-    private val newCommentButton = JButton("Новый комментарий", AllIcons.General.Add)
-    private val hideResolved = JBCheckBox("Скрыть решённые")
+    private val newCommentButton = JButton(msg("details.newComment"), AllIcons.General.Add)
+    private val hideResolved = JBCheckBox(msg("details.hideResolved"))
 
     private val description = JEditorPane().apply {
         editorKit = HTMLEditorKitBuilder.simple()
@@ -82,7 +84,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
     }
     private val tabs = JBTabbedPane()
 
-    private val placeholder = JBLabel("Выберите merge request", SwingConstants.CENTER).apply {
+    private val placeholder = JBLabel(msg("details.placeholder"), SwingConstants.CENTER).apply {
         foreground = UIUtil.getContextHelpForeground()
     }
     private val content = JPanel(BorderLayout())
@@ -112,11 +114,11 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
                 add(showHidden); add(filesSummary)
             }, BorderLayout.NORTH)
             add(JBScrollPane(tree).apply { border = JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0) }, BorderLayout.CENTER)
-            add(hint("Двойной клик или Enter — открыть diff · Пробел — отметить просмотренным"), BorderLayout.SOUTH)
+            add(hint(msg("details.filesHint")), BorderLayout.SOUTH)
         }
 
         threads.setCellRenderer(ThreadCellRenderer())
-        threads.emptyText.text = "Комментариев нет"
+        threads.emptyText.text = msg("details.threadsEmpty")
         threads.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 if (e.clickCount == 2 && e.button == MouseEvent.BUTTON1) openSelectedThread()
@@ -132,11 +134,11 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
                 add(newCommentButton); add(hideResolved)
             }, BorderLayout.NORTH)
             add(JBScrollPane(threads).apply { border = JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0) }, BorderLayout.CENTER)
-            add(hint("Двойной клик — открыть тред: комментарий к строке откроется в diff на этой строке"), BorderLayout.SOUTH)
+            add(hint(msg("details.threadsHint")), BorderLayout.SOUTH)
         }
-        tabs.addTab("Файлы", filesTab)
-        tabs.addTab("Обсуждение", threadsTab)
-        tabs.addTab("Описание", JBScrollPane(description))
+        tabs.addTab(msg("details.tab.files", 0), filesTab)
+        tabs.addTab(msg("details.tab.discussion", 0), threadsTab)
+        tabs.addTab(msg("details.tab.description"), JBScrollPane(description))
 
         content.add(header, BorderLayout.NORTH)
         content.add(tabs, BorderLayout.CENTER)
@@ -148,7 +150,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         backButton.addActionListener { goBack() }
         approveButton.addActionListener { toggleApprove() }
         browserButton.addActionListener { session?.let { BrowserUtil.browse(it.mr.webUrl) } }
-        refreshButton.addActionListener { session?.let { load(it.mr) } }
+        refreshButton.addActionListener { session?.let { load(it.mr, it.type) } }
         newCommentButton.addActionListener {
             val s = session ?: return@addActionListener
             ThreadPopup.showNew(project, s, null, RelativePoint(newCommentButton, Point(0, newCommentButton.height)))
@@ -157,16 +159,17 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         service.addListener(parent) { onServiceChanged() }
     }
 
-    fun load(mr: MergeRequest) {
+    fun load(mr: MergeRequest, type: HostingType) {
         loadingIid = mr.iid
+        val ref = "${type.prefix}${mr.iid}"
         removeAll()
-        add(JBLabel("Загрузка !${mr.iid}…", SwingConstants.CENTER), BorderLayout.CENTER)
+        add(JBLabel(msg("details.loading", ref), SwingConstants.CENTER), BorderLayout.CENTER)
         revalidate(); repaint()
-        Bg.run(project, "Загрузка !${mr.iid}", work = {
+        Bg.run(project, msg("details.loading", ref), work = {
             val s = service.loadSession(mr)
             s to service.checkoutState(s)
         }, onError = {
-            if (loadingIid == mr.iid) showMessage("Не удалось загрузить !${mr.iid}: ${it.message}")
+            if (loadingIid == mr.iid) showMessage(msg("details.loadFailed", ref, it.message))
         }) { (s, co) ->
             if (loadingIid != mr.iid) return@run
             loadingIid = null
@@ -200,20 +203,21 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
     private fun render() {
         val s = session ?: return
         val mr = s.mr
-        title.text = "<html>${if (mr.draft) "<span style='color:gray'>Draft:</span> " else ""}!${mr.iid} ${Markdown.escape(mr.title)}</html>"
+        title.text = "<html>${if (mr.draft) "<span style='color:gray'>Draft:</span> " else ""}${s.ref} ${Markdown.escape(mr.title)}</html>"
         meta.text = "${mr.author?.name ?: "?"} · ${mr.sourceBranch} → ${mr.targetBranch} · ${mr.state}" +
-            (if (mr.hasConflicts) " · конфликты" else "") +
-            (if (s.approvedBy.isNotEmpty()) " · approved: ${s.approvedBy.joinToString()}" else "")
+            (if (mr.hasConflicts) " · " + msg("details.conflicts") else "") +
+            (if (s.approvedBy.isNotEmpty()) " · " + msg("details.approvedBy", s.approvedBy.joinToString()) else "")
+        refreshButton.toolTipText = msg("details.refresh", s.type.term)
         checkoutState.text = stateText(s, state)
         checkoutState.foreground = if (checkedOut) UIUtil.getLabelForeground() else UIUtil.getErrorForeground()
         checkoutButton.isEnabled = !checkedOut
         backButton.isVisible = service.returnPointFor(s) != null
-        approveButton.text = if (isApprovedByMe(s)) "Отозвать approve" else "Approve"
+        approveButton.text = msg(if (isApprovedByMe(s)) "details.revokeApprove" else "details.approve")
         updateFilesSummary()
         tree.repaint()
         renderThreads()
         // Relative links in GitLab descriptions (uploads) are relative to the project.
-        description.text = "<html>${Markdown.gfmToHtml(mr.description.ifBlank { "_Нет описания_" }, mr.webUrl.substringBefore("/-/"))}</html>"
+        description.text = "<html>${Markdown.gfmToHtml(mr.description.ifBlank { msg("details.noDescription") }, mr.webUrl.substringBefore("/-/"))}</html>"
         description.caretPosition = 0
         revalidate(); repaint()
     }
@@ -224,13 +228,11 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         val head = st?.mrHeadSha?.take(8) ?: "?"
         return when {
             st == null -> ""
-            st.error != null -> "Не удалось проверить git: ${st.error}"
-            st.onMr -> "✓ Рабочая копия на коде MR (${st.current}, $head) — в diff работают переходы"
-            st.mrBranchSha != null && st.mrBranchSha == st.mrHeadSha ->
-                "Сейчас вы на ${st.current}. Ветка $branch уже выкачана — «Checkout и ревью» переключит на неё"
-            st.mrBranchSha != null ->
-                "Сейчас вы на ${st.current}. В MR новые коммиты — «Checkout и ревью» обновит $branch до $head"
-            else -> "Сейчас вы на ${st.current}, а не на коде MR ($head) — переходы в diff не работают. Нажмите «Checkout и ревью»"
+            st.error != null -> msg("details.state.gitError", st.error)
+            st.onMr -> msg("details.state.onMr", s.type.term, st.current, head)
+            st.mrBranchSha != null && st.mrBranchSha == st.mrHeadSha -> msg("details.state.branchReady", st.current, branch)
+            st.mrBranchSha != null -> msg("details.state.newCommits", st.current, s.type.term, branch, head)
+            else -> msg("details.state.notOnMr", st.current, s.type.term, head)
         }
     }
 
@@ -244,13 +246,13 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         val hidden = MrReviewSettings.getInstance().hiddenFiles()
         val hiddenCount = s.changes.count { hidden.isHidden(it) }
         showHidden.isVisible = hiddenCount > 0
-        showHidden.text = "Показать скрытые ($hiddenCount)"
+        showHidden.text = msg("details.showHidden", hiddenCount)
         tree.setChanges(s.changes, hidden, showHidden.isSelected)
         updateFilesSummary()
-        tabs.setTitleAt(0, "Файлы (${tree.shownFiles.size})")
+        tabs.setTitleAt(0, msg("details.tab.files", tree.shownFiles.size))
     }
 
-    /** "7 файлов · +120 −34 · просмотрено 3 из 7 · скрыто 115 сгенерированных" */
+    /** "7 files · +120 −34 · 3 of 7 viewed · 115 generated hidden" */
     private fun updateFilesSummary() {
         val s = session ?: return
         val hidden = MrReviewSettings.getInstance().hiddenFiles()
@@ -260,10 +262,10 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         val removed = visible.sumOf { it.stats.second }
         val viewed = visible.count { it.displayPath in s.viewed }
         val n = visible.size.toLong()
-        filesSummary.text = "<html>$n ${MrBundle.plural(n, "files")} · " +
+        filesSummary.text = "<html>" + msg("details.summary.files", n, MrBundle.plural(n, "files")) + " · " +
             "<font color='${ColorUtil.toHtmlColor(PLUS)}'>+$added</font> <font color='${ColorUtil.toHtmlColor(MINUS)}'>−$removed</font>" +
-            " · просмотрено $viewed из $n" +
-            (if (hiddenCount > 0) " · скрыто $hiddenCount сгенерированных" else "") + "</html>"
+            " · " + msg("details.summary.viewed", viewed, n) +
+            (if (hiddenCount > 0) " · " + msg("details.summary.hidden", hiddenCount) else "") + "</html>"
     }
 
     private fun toggleViewed(s: MrSession, change: FileChange) {
@@ -284,7 +286,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
             .forEach { threadsModel.addElement(it) }
         (0 until threadsModel.size()).firstOrNull { threadsModel[it].id == selected }?.let { threads.selectedIndex = it }
         hideResolved.isVisible = all.any { it.resolved }
-        tabs.setTitleAt(1, "Обсуждение (${all.size}" + (if (open > 0) ", открыто $open" else "") + ")")
+        tabs.setTitleAt(1, if (open > 0) msg("details.tab.discussionOpen", all.size, open) else msg("details.tab.discussion", all.size))
     }
 
     /** A line thread opens the diff at its line; a general or outdated one opens as a popup. */
@@ -326,22 +328,22 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
     private fun checkout() {
         val s = session ?: return
         checkoutButton.isEnabled = false
-        Bg.run(project, "Checkout !${s.mr.iid}", work = { service.checkout(s) to service.checkoutState(s) }, onError = {
+        Bg.run(project, msg("details.checkoutTask", s.ref), work = { service.checkout(s) to service.checkoutState(s) }, onError = {
             checkoutButton.isEnabled = true
-            Notify.error(project, "Checkout не удался", it)
+            Notify.error(project, msg("details.checkoutFailed"), it)
         }) { (message, newState) ->
             state = newState
             render()
-            Notify.info(project, "!${s.mr.iid}: $message", "Вернуться" to { goBack() })
+            Notify.info(project, "${s.ref}: $message", msg("details.back") to { goBack() })
             tree.shownFiles.firstOrNull()?.let { openDiff(it, tree.shownFiles) }
         }
     }
 
     private fun goBack() {
         val s = session
-        Bg.run(project, "Возврат на прежнюю ветку", work = {
-            val msg = service.goBack(s ?: throw IllegalStateException("MR не выбран"))
-            msg to service.checkoutState(s)
+        Bg.run(project, msg("details.goBackTask"), work = {
+            val text = service.goBack(s ?: throw IllegalStateException(msg("details.nothingSelected")))
+            text to service.checkoutState(s)
         }) { (message, co) ->
             state = co
             render()
@@ -352,7 +354,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
     private fun toggleApprove() {
         val s = session ?: return
         val approve = !isApprovedByMe(s)
-        Bg.run(project, if (approve) "Approve" else "Отзыв approve", work = {
+        Bg.run(project, if (approve) msg("details.approve") else msg("details.revokeTask"), work = {
             val c = service.client()
             if (approve) c.approve(s.project, s.mr) else c.unapprove(s.project, s.mr)
             service.refreshApprovals(s)
@@ -390,10 +392,10 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
             value.position?.let { p ->
                 top.append("  ·  ${(p.newPath ?: p.oldPath)?.substringAfterLast('/')}:${p.lineLabel()}", grey)
             }
-            if (s != null && s.isOutdated(value)) top.append("  устарел", SimpleTextAttributes.GRAYED_ITALIC_ATTRIBUTES)
+            if (s != null && s.isOutdated(value)) top.append("  " + msg("thread.outdated"), SimpleTextAttributes.GRAYED_ITALIC_ATTRIBUTES)
             when {
-                value.resolved -> top.append("  решён", SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, if (selected) fg else PLUS))
-                value.resolvable -> top.append("  открыт", SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, if (selected) fg else OPEN))
+                value.resolved -> top.append("  " + msg("thread.resolved"), SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, if (selected) fg else PLUS))
+                value.resolvable -> top.append("  " + msg("thread.open"), SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, if (selected) fg else OPEN))
             }
 
             val preview = first?.body?.lineSequence()?.map { it.trim() }?.firstOrNull { it.isNotEmpty() && !it.startsWith("```") }.orEmpty()

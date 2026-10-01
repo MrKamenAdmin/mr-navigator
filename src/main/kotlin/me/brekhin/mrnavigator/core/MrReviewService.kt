@@ -16,6 +16,7 @@ import me.brekhin.mrnavigator.git.RepoScanner
 import me.brekhin.mrnavigator.settings.MrReviewSettings
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
+import me.brekhin.mrnavigator.util.msg
 
 /** Everything loaded for one opened merge request. */
 class MrSession(
@@ -37,7 +38,7 @@ class MrSession(
 
     fun isOutdated(d: Discussion): Boolean = d.position?.isOutdatedFor(mr.diffRefs?.headSha) == true
 
-    val refs: DiffRefs get() = mr.diffRefs ?: throw ApiException("У MR нет diff_refs — GitLab ещё не посчитал diff, обновите позже")
+    val refs: DiffRefs get() = mr.diffRefs ?: throw ApiException(msg("error.noDiffRefs", ref, type.title))
     private val lineMaps = HashMap<FileChange, DiffLineMap>()
 
     fun lineMap(change: FileChange): DiffLineMap = synchronized(lineMaps) { lineMaps.getOrPut(change) { DiffLineMap(change.diff) } }
@@ -77,7 +78,7 @@ class Repo(val root: File, val name: String, val remoteName: String, val project
 class MrException(message: String) : Exception(message)
 
 /** The plugin is not connected yet (no token, or the configured server does not match the project's remote). */
-class SetupNeeded(message: String) : Exception(message)
+class SetupNeeded(message: String?) : Exception(message)
 
 @Service(Service.Level.PROJECT)
 class MrReviewService(private val ideProject: Project) {
@@ -116,9 +117,9 @@ class MrReviewService(private val ideProject: Project) {
         val server = MrReviewSettings.getInstance().serverUrl
         if (!refresh) reposCache?.let { (s, list) -> if (s == server) return list }
 
-        val base = File(ideProject.basePath ?: throw MrException("У проекта нет каталога"))
+        val base = File(ideProject.basePath ?: throw MrException(msg("error.noProjectDir")))
         val roots = RepoScanner.find(base)
-        if (roots.isEmpty()) throw MrException("В папке проекта не найдено ни одного git-репозитория")
+        if (roots.isEmpty()) throw MrException(msg("error.noRepos"))
 
         val hosts = LinkedHashSet<String>()
         val repos = roots.mapNotNull { root ->
@@ -134,11 +135,7 @@ class MrReviewService(private val ideProject: Project) {
             }
         }
         if (repos.isEmpty()) {
-            throw SetupNeeded(
-                "Ни один git remote не указывает на $server" +
-                    (if (hosts.isNotEmpty()) " (remote'ы: ${hosts.joinToString()})" else "") +
-                    ". Укажите адрес вашего GitLab.",
-            )
+            throw SetupNeeded(msg("error.noRemote", server, if (hosts.isNotEmpty()) msg("error.noRemote.hosts", hosts.joinToString()) else ""))
         }
         reposCache = server to repos
         return repos
@@ -175,7 +172,7 @@ class MrReviewService(private val ideProject: Project) {
 
     fun client(): HostingClient {
         val settings = MrReviewSettings.getInstance()
-        val token = settings.getToken() ?: throw SetupNeeded("Не задан токен GitLab")
+        val token = settings.getToken() ?: throw SetupNeeded(null)
         return GitLabClient(settings.serverUrl, token)
     }
 
@@ -267,7 +264,7 @@ class MrReviewService(private val ideProject: Project) {
             s.git.run("fetch", remote, s.mr.targetBranch, timeoutMs = 300_000)
         }
         if (!s.git.hasCommit(refs.headSha) || !s.git.hasCommit(refs.baseSha)) {
-            throw GitException("Не удалось получить коммиты MR из remote '$remote'")
+            throw GitException(msg("error.fetchFailed", s.type.term, remote))
         }
     }
 
@@ -280,13 +277,13 @@ class MrReviewService(private val ideProject: Project) {
         val refs = s.refs
         ensureCommits(s)
 
-        if (git.headSha() == refs.headSha) return "Уже на коммите MR"
+        if (git.headSha() == refs.headSha) return msg("checkout.alreadyOnMr", s.type.term)
 
         val previous = git.currentBranch() ?: git.headSha()
         var stashMarker: String? = null
         if (git.hasLocalChanges()) {
             if (!MrReviewSettings.getInstance().autoStash) {
-                throw MrException("Есть незакоммиченные изменения. Закоммитьте их или включите авто-stash в настройках.")
+                throw MrException(msg("error.localChanges"))
             }
             stashMarker = "mr-review !${s.mr.iid} ${System.currentTimeMillis()}"
             git.run("stash", "push", "-m", stashMarker)
@@ -304,19 +301,19 @@ class MrReviewService(private val ideProject: Project) {
         // back to the user's own branch, not to the previous mr/<iid>.
         returnPoints.putIfAbsent(git.root, ReturnPoint(s.mr.iid, previous, stashMarker, git.root))
         fireChanged()
-        return "Ветка $branch" + (if (stashMarker != null) ", ваши изменения спрятаны в stash" else "")
+        return msg(if (stashMarker != null) "checkout.branchStashed" else "checkout.branch", branch)
     }
 
     /** Goes back to the branch that was active before [checkout] and restores stashed changes. */
     /** Goes back in the repository of [s] to the branch that was active before the first checkout. */
     fun goBack(s: MrSession): String {
-        val point = returnPoints[s.git.root] ?: throw MrException("Некуда возвращаться")
+        val point = returnPoints[s.git.root] ?: throw MrException(msg("error.nowhereToGoBack"))
         val git = GitCli(point.root)
         git.run("checkout", point.ref)
-        var message = "Вернулись на ${point.ref}"
-        if (point.stashMarker != null) {
-            message += if (popStash(git, point.stashMarker)) ", изменения из stash восстановлены"
-            else ". Stash «${point.stashMarker}» не найден или конфликтует — восстановите вручную (git stash list)"
+        val message = when {
+            point.stashMarker == null -> msg("checkout.returned", point.ref)
+            popStash(git, point.stashMarker) -> msg("checkout.returnedRestored", point.ref)
+            else -> msg("checkout.returnedStashMissing", point.ref, point.stashMarker)
         }
         refreshFiles(git.root)
         returnPoints.remove(point.root)

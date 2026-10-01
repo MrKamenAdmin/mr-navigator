@@ -16,6 +16,7 @@ import java.awt.event.MouseEvent
 import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
+import me.brekhin.mrnavigator.util.msg
 
 /**
  * Tree of MR files grouped by folders. Hidden files are left out (unless [showHidden]),
@@ -156,9 +157,9 @@ class ChangesTree(
                     val (added, removed) = c.stats
                     if (added > 0) append("  +$added", SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, PLUS))
                     if (removed > 0) append(" −$removed", SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, MINUS))
-                    if (viewed) append("  ✓ просмотрен", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
-                    if (o.hidden) append("  скрыт", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
-                    if (c.tooLarge) append("  слишком большой", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
+                    if (viewed) append("  " + msg("tree.viewed"), SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
+                    if (o.hidden) append("  " + msg("tree.hidden"), SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
+                    if (c.tooLarge) append("  " + msg("tree.tooLarge"), SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
                 }
             }
         }

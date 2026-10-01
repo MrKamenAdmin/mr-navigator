@@ -24,6 +24,7 @@ import me.brekhin.mrnavigator.core.MrReviewService
 import me.brekhin.mrnavigator.core.MrSession
 import me.brekhin.mrnavigator.ui.Bg
 import java.io.File
+import me.brekhin.mrnavigator.util.msg
 
 /** Attached to every diff request we open, so [MrDiffExtension] knows what it is looking at. */
 class MrFileContext(
@@ -43,7 +44,7 @@ object MrDiffOpener {
     fun open(project: Project, session: MrSession, files: List<FileChange>, selected: FileChange, scrollTo: kotlin.Pair<Side, Int>? = null) {
         if (files.isEmpty()) return
         val service = MrReviewService.getInstance(project)
-        Bg.run(project, "Подготовка diff !${session.mr.iid}", work = {
+        Bg.run(project, msg("diff.prepareTask", session.ref), work = {
             service.ensureCommits(session)
             service.isCheckedOut(session)
         }) { checkedOut ->
@@ -89,13 +90,13 @@ object MrDiffOpener {
                 }
 
                 val mr = session.mr
-                val leftTitle = if (change.newFile) "(новый файл)" else "${mr.targetBranch} · ${refs.baseSha.take(8)} · ${change.oldPath}"
+                val leftTitle = if (change.newFile) msg("diff.newFile") else "${mr.targetBranch} · ${refs.baseSha.take(8)} · ${change.oldPath}"
                 val rightTitle = when {
-                    change.deletedFile -> "(удалён)"
-                    rightIsLocal -> "Локальный файл · ${mr.sourceBranch} · ${change.newPath}"
-                    else -> "${mr.sourceBranch} · ${refs.headSha.take(8)} · ${change.newPath} (без checkout переходы не работают)"
+                    change.deletedFile -> msg("diff.deleted")
+                    rightIsLocal -> msg("diff.local", mr.sourceBranch, change.newPath)
+                    else -> msg("diff.revision", mr.sourceBranch, refs.headSha.take(8), change.newPath)
                 }
-                val request = SimpleDiffRequest("!${mr.iid}: ${change.displayPath}", left, right, leftTitle, rightTitle)
+                val request = SimpleDiffRequest("${session.ref}: ${change.displayPath}", left, right, leftTitle, rightTitle)
                 request.putUserData(CONTEXT_KEY, MrFileContext(session, change, rightIsLocal))
                 scrollTo?.let { (side, line) -> request.putUserData(DiffUserDataKeys.SCROLL_TO_LINE, Pair.create(side, line)) }
                 MrReviewService.getInstance(project).setViewed(session, change.displayPath, true)

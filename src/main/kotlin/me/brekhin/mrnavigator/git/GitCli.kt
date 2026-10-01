@@ -8,6 +8,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
+import me.brekhin.mrnavigator.util.msg
 
 class GitException(message: String) : IOException(message)
 
@@ -31,9 +32,9 @@ class GitCli(val root: File) {
         val output = try {
             ExecUtil.execAndGetOutput(commandLine(args.toList()), timeoutMs)
         } catch (e: Exception) {
-            throw GitException("Не удалось запустить git: ${e.message}. Укажите путь к git в настройках плагина.")
+            throw GitException(msg("git.cannotRun", e.message))
         }
-        if (output.isTimeout) throw GitException("git ${args.firstOrNull()} не завершился за ${timeoutMs / 1000} с")
+        if (output.isTimeout) throw GitException(msg("git.timeout", args.firstOrNull(), timeoutMs / 1000))
         if (output.exitCode != 0) LOG.info("git ${args.firstOrNull()} exit ${output.exitCode}: ${output.stderr.trim().take(500)}")
         if (output.exitCode != 0 && !allowFail) {
             throw GitException("git ${args.joinToString(" ")}:\n${output.stderr.ifBlank { output.stdout }.trim()}")
@@ -54,7 +55,7 @@ class GitCli(val root: File) {
         process.errorStream.use { it.readBytes() }
         if (!process.waitFor(60, TimeUnit.SECONDS)) {
             process.destroyForcibly()
-            throw GitException("git show $rev:$path завершился по таймауту")
+            throw GitException(msg("git.showTimeout", "$rev:$path"))
         }
         return if (process.exitValue() == 0) bytes else null
     }

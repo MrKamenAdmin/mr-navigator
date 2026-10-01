@@ -30,7 +30,7 @@
 
     <actions>
         <action id="me.brekhin.mrnavigator.AddComment" class="me.brekhin.mrnavigator.diff.AddCommentAction"
-                text="Комментарий к строке / выделению (GitLab MR)" icon="AllIcons.General.Balloon">
+                text="Comment on Line / Selection" icon="AllIcons.General.Balloon">
             <add-to-group group-id="Diff.EditorPopupMenu" anchor="first"/>
         </action>
     </actions>

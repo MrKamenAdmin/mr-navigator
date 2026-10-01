@@ -31,6 +31,7 @@ import java.awt.Color
 import java.awt.Point
 import javax.swing.SwingUtilities
 import javax.swing.Icon
+import me.brekhin.mrnavigator.util.msg
 
 /**
  * Converts between editor lines and file lines (0-based) of a diff editor.
@@ -74,7 +75,7 @@ class CommentMarkers(
     private val service = MrReviewService.getInstance(project)
 
     /**
-     * The newest session of the same MR version: after "Обновить MR" the service holds a new
+     * The newest session of the same MR version: after "Refresh" the service holds a new
      * session object, and this diff should follow it rather than the one it was opened with.
      */
     private val session: MrSession
@@ -167,7 +168,7 @@ class CommentMarkers(
 
     private fun newComment(editorLine: Int) {
         if (ctx.change.tooLarge) {
-            Notify.info(project, "GitLab не отдал diff этого файла (слишком большой) — комментируйте его в браузере")
+            Notify.info(project, msg("diff.tooLarge", session.type.title))
             return
         }
         // With several lines selected and the click inside the selection — comment on the whole range.
@@ -245,7 +246,7 @@ class CommentMarkers(
             val first = d.first
             val preview = first?.body?.lineSequence()?.firstOrNull()?.take(120).orEmpty()
             val replies = d.notes.count { !it.system } - 1
-            val range = d.position?.takeIf { it.isMultiLine }?.let { " <i>(строки ${it.lineLabel()})</i>" }.orEmpty()
+            val range = d.position?.takeIf { it.isMultiLine }?.let { " <i>(${msg("diff.lines", it.lineLabel())})</i>" }.orEmpty()
             "<b>${StringUtil.escapeXmlEntities(first?.author?.name ?: "?")}</b>$range: ${StringUtil.escapeXmlEntities(preview)}" +
                 (if (replies > 0) " (+$replies)" else "") + (if (d.resolved) " ✓" else "")
         }
@@ -271,8 +272,8 @@ class CommentMarkers(
     private inner class AddIcon(private val line: Int) : GutterIconRenderer() {
         override fun getIcon(): Icon = AllIcons.General.Add
         override fun getTooltipText() =
-            if ((selectedLines() ?: lastSelection)?.let { line in it && it.first != it.last } == true) "Комментарий к выделенным строкам (GitLab)"
-            else "Комментарий к строке (GitLab). Выделите несколько строк — комментарий будет на диапазон"
+            if ((selectedLines() ?: lastSelection)?.let { line in it && it.first != it.last } == true) msg("diff.commentRange", session.type.title)
+            else msg("diff.commentLine", session.type.title)
         override fun isNavigateAction() = true
         override fun getAlignment() = Alignment.LEFT
 

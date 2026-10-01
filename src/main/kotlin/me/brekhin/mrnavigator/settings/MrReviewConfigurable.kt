@@ -47,35 +47,35 @@ class MrReviewConfigurable : BoundConfigurable("MR Navigator") {
 
         return panel {
             group("GitLab") {
-                row("Адрес сервера:") {
+                row(msg("settings.server")) {
                     urlField = textField().bindText(settings::serverUrl).columns(COLUMNS_LARGE)
-                        .comment("Например https://gitlab.com или https://git.company.ru").component
+                        .comment(msg("settings.server.comment")).component
                 }
-                row("Personal access token:") {
+                row(msg("settings.token")) {
                     tokenField = passwordField().bindText(::token).columns(COLUMNS_LARGE)
-                        .comment("Scope <b>api</b>: GitLab → Preferences → Access Tokens. Хранится в хранилище паролей IDE.").component
+                        .comment(msg("settings.token.comment")).component
                 }
                 row {
-                    button("Проверить подключение") { testConnection() }
+                    button(msg("settings.check")) { testConnection() }
                 }
             }
-            group("Скрытие файлов") {
+            group(msg("settings.hiding")) {
                 row {
-                    checkBox("Скрывать файлы с этими суффиксами в дереве и diff").bindSelected(settings::hideEnabled)
+                    checkBox(msg("settings.hide")).bindSelected(settings::hideEnabled)
                 }
-                row("Суффиксы (по одному в строке):") {}
+                row(msg("settings.suffixes")) {}
                 row {
                     textArea().bindText(::suffixesText).rows(4).align(AlignX.FILL)
                         .applyToComponent { emptyText.text = ".pb.go" }
-                        .comment("Путь файла оканчивается на суффикс → файл скрыт. Например .pb.go, .pb.gw.go, _mock.go")
+                        .comment(msg("settings.suffixes.comment"))
                 }
             }
-            group("Git") {
-                row("Путь к git:") {
-                    textField().bindText(settings::gitExecutable).columns(COLUMNS_LARGE).comment("Обычно достаточно git")
+            group(msg("settings.git")) {
+                row(msg("settings.gitPath")) {
+                    textField().bindText(settings::gitExecutable).columns(COLUMNS_LARGE).comment(msg("settings.gitPath.comment"))
                 }
                 row {
-                    checkBox("При checkout MR прятать незакоммиченные изменения в stash").bindSelected(settings::autoStash)
+                    checkBox(msg("settings.autoStash")).bindSelected(settings::autoStash)
                 }
             }
             row(msg("settings.language")) {
@@ -93,7 +93,7 @@ class MrReviewConfigurable : BoundConfigurable("MR Navigator") {
         val server = settings.serverUrl
         // Synchronously (under a progress) so that the tool window reloading right after sees the new token.
         ProgressManager.getInstance().runProcessWithProgressSynchronously(
-            Runnable { settings.setToken(value, server) }, "Сохранение токена", false, null,
+            Runnable { settings.setToken(value, server) }, msg("settings.savingToken"), false, null,
         )
     }
 
@@ -101,14 +101,14 @@ class MrReviewConfigurable : BoundConfigurable("MR Navigator") {
         val url = urlField.text.trim().trimEnd('/')
         val tok = String(tokenField.password).trim()
         if (url.isEmpty() || tok.isEmpty()) {
-            Messages.showWarningDialog(urlField, "Заполните адрес и токен", "GitLab")
+            Messages.showWarningDialog(urlField, msg("settings.fillIn"), "GitLab")
             return
         }
         try {
             val user = ProgressManager.getInstance().runProcessWithProgressSynchronously(
-                ThrowableComputable { GitLabClient(url, tok).currentUser() }, "Проверка подключения…", true, null,
+                ThrowableComputable { GitLabClient(url, tok).currentUser() }, msg("settings.checking"), true, null,
             )
-            Messages.showInfoMessage(urlField, "Подключено как ${user.name} (@${user.username})", "GitLab")
+            Messages.showInfoMessage(urlField, msg("settings.connected", user.name, user.username), "GitLab")
         } catch (e: Exception) {
             Messages.showErrorDialog(urlField, e.message ?: e.toString(), "GitLab")
         }

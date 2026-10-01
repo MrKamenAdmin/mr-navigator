@@ -27,6 +27,7 @@ import java.net.URLEncoder
 import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.Scrollable
+import me.brekhin.mrnavigator.util.msg
 
 /**
  * Shown instead of the MR list until the plugin is connected: GitLab address (suggested from
@@ -46,31 +47,30 @@ class SetupPanel(private val project: Project, private val onConnected: () -> Un
     init {
         val form = panel {
             row {
-                label("Подключение к GitLab").applyToComponent { font = JBFont.h3().asBold() }
+                label(msg("setup.title")).applyToComponent { font = JBFont.h3().asBold() }
             }
             row {
-                text("Плагину нужен адрес вашего GitLab и личный токен доступа со scope <b>api</b>. " +
-                    "Токен хранится в хранилище паролей IDE.")
+                text(msg("setup.intro"))
             }
             row { cell(reason).align(AlignX.FILL) }
-            row("Адрес GitLab:") {
+            row(msg("setup.url")) {
                 urlField = textField().columns(COLUMNS_LARGE).component
             }
             row("") { cell(detected) }
-            row("Токен:") {
+            row(msg("setup.token")) {
                 tokenField = passwordField().columns(COLUMNS_LARGE).component
             }
             row("") {
-                link("Создать токен в GitLab →") { BrowserUtil.browse(tokenPageUrl()) }
+                link(msg("setup.createToken")) { BrowserUtil.browse(tokenPageUrl()) }
             }
             row {
-                connectButton = button("Подключить") { connect() }
+                connectButton = button(msg("setup.connect")) { connect() }
                     .applyToComponent { putClientProperty(DarculaButtonUI.DEFAULT_STYLE_KEY, true) }
                     .component
             }
             row { cell(status).align(AlignX.FILL) }
             row {
-                link("Все настройки плагина") {
+                link(msg("setup.allSettings")) {
                     ShowSettingsUtil.getInstance().showSettingsDialog(project, MrReviewConfigurable::class.java)
                     onConnected()
                 }
@@ -92,7 +92,7 @@ class SetupPanel(private val project: Project, private val onConnected: () -> Un
             val servers = MrReviewService.getInstance(project).detectedServers()
             ApplicationManager.getApplication().invokeLater({
                 if (servers.isEmpty()) return@invokeLater
-                detected.text = "Найдено в git remote: " + servers.joinToString()
+                detected.text = msg("setup.detected", servers.joinToString())
                 // The default gitlab.com is almost certainly wrong for a company repo — suggest the remote's host.
                 if (settings.serverUrl == "https://gitlab.com" && servers.first() != "https://gitlab.com") {
                     urlField.text = servers.first()
@@ -112,13 +112,13 @@ class SetupPanel(private val project: Project, private val onConnected: () -> Un
         val url = serverUrl()
         val token = String(tokenField.password).trim()
         if (token.isEmpty()) {
-            showError("Вставьте токен")
+            showError(msg("setup.pasteToken"))
             return
         }
         connectButton.isEnabled = false
         status.foreground = UIUtil.getContextHelpForeground()
-        status.text = "Проверяю…"
-        Bg.run(project, "Подключение к GitLab", work = {
+        status.text = msg("setup.checking")
+        Bg.run(project, msg("setup.task", "GitLab"), work = {
             val user = GitLabClient(url, token).currentUser()
             settings.serverUrl = url
             settings.setToken(token, url)
@@ -129,7 +129,7 @@ class SetupPanel(private val project: Project, private val onConnected: () -> Un
         }) { user ->
             connectButton.isEnabled = true
             tokenField.text = ""
-            Notify.info(project, "GitLab: подключено как ${user.name} (@${user.username})")
+            Notify.info(project, msg("setup.connected", "GitLab", user.name, user.username))
             onConnected()
         }
     }

@@ -64,4 +64,15 @@ class BundleTest {
         assertEquals("21 days ago", TimeAgo.format("2026-09-10T08:00:00Z", now, utc))
         assertEquals("1 Jun 2026", TimeAgo.format("2026-06-01T08:00:00Z", now, utc))
     }
+
+    @Test
+    fun noRussianLiteralsInCode() {
+        val literal = Regex("\"[^\"\\n]*[А-Яа-яЁё][^\"\\n]*\"")
+        val offenders = java.io.File("src/main/kotlin").walk().filter { it.extension == "kt" }.flatMap { f ->
+            f.readLines().withIndex()
+                .filter { (_, line) -> !line.trimStart().startsWith("//") && !line.trimStart().startsWith("*") && literal.containsMatchIn(line) }
+                .map { (i, line) -> "${f.name}:${i + 1}: ${line.trim()}" }
+        }.toList()
+        assertEquals(emptyList(), offenders)
+    }
 }

@@ -44,6 +44,8 @@ import javax.swing.SwingConstants
 import javax.swing.event.HyperlinkEvent
 import kotlin.math.max
 import kotlin.math.min
+import me.brekhin.mrnavigator.util.msg
+import me.brekhin.mrnavigator.api.HostingType
 
 /** Popup with a comment thread (read, reply, resolve) or with a form for a new comment. */
 object ThreadPopup {
@@ -64,14 +66,14 @@ object ThreadPopup {
         val service = MrReviewService.getInstance(project)
         lateinit var popup: JBPopup
 
-        val input = inputArea("Ответить…")
-        val reply = primary("Ответить")
-        val resolve = JButton(if (discussion.resolved) "Переоткрыть" else "Resolve").apply {
+        val input = inputArea(msg("popup.replyPlaceholder"))
+        val reply = primary(msg("popup.reply"))
+        val resolve = JButton(msg(if (discussion.resolved) "popup.reopen" else "popup.resolve")).apply {
             isVisible = discussion.resolvable
-            toolTipText = if (discussion.resolved) "Снова открыть обсуждение" else "Отметить обсуждение решённым"
+            toolTipText = msg(if (discussion.resolved) "popup.reopen.tooltip" else "popup.resolve.tooltip")
         }
         val openWeb = JButton(AllIcons.General.Web).apply {
-            toolTipText = "Открыть в браузере"
+            toolTipText = msg("openInBrowser")
             isVisible = discussion.webUrl != null
         }
 
@@ -83,34 +85,33 @@ object ThreadPopup {
             val text = input.text.trim()
             if (text.isNotEmpty()) {
                 busy(true)
-                Bg.run(project, "Отправка ответа", work = { service.reply(session, discussion, text) },
-                    onError = { busy(false); Notify.error(project, "Ответ не отправлен", it) }) { popup.cancel() }
+                Bg.run(project, msg("popup.replyTask"), work = { service.reply(session, discussion, text) },
+                    onError = { busy(false); Notify.error(project, msg("popup.replyFailed"), it) }) { popup.cancel() }
             }
         }
         reply.addActionListener { sendReply() }
         submitOnCtrlEnter(input, sendReply)
         resolve.addActionListener {
             busy(true)
-            Bg.run(project, "Resolve", work = { service.setResolved(session, discussion, !discussion.resolved) },
-                onError = { busy(false); Notify.error(project, "Не получилось", it) }) { popup.cancel() }
+            Bg.run(project, msg("popup.resolve"), work = { service.setResolved(session, discussion, !discussion.resolved) },
+                onError = { busy(false); Notify.error(project, msg("popup.resolveFailed"), it) }) { popup.cancel() }
         }
         openWeb.addActionListener { discussion.webUrl?.let { BrowserUtil.browse(it) } }
         val applySuggestions = { ids: List<Long>, button: JButton ->
             busy(true); button.isEnabled = false
-            Bg.run(project, "Применение suggestion", work = { service.applySuggestions(session, ids) },
-                onError = { busy(false); button.isEnabled = true; Notify.error(project, "Suggestion не применён", it) }) {
+            Bg.run(project, msg("popup.applyTask"), work = { service.applySuggestions(session, ids) },
+                onError = { busy(false); button.isEnabled = true; Notify.error(project, msg("popup.applyFailed"), it) }) {
                 popup.cancel()
-                Notify.info(project, "Suggestion применён: GitLab добавил коммит в ${session.mr.sourceBranch}. " +
-                    "Чтобы получить его локально, обновите MR и сделайте «Checkout и ревью»")
+                Notify.info(project, msg("popup.applied", session.type.title, session.mr.sourceBranch, session.type.term))
             }
         }
 
         val panel = JPanel(BorderLayout(0, JBUI.scale(8))).apply {
             border = JBUI.Borders.empty(8, 10, 10, 10)
             if (discussion.resolved) add(resolvedBanner(discussion), BorderLayout.NORTH)
-            add(notesView(discussion, applySuggestions), BorderLayout.CENTER)
+            add(notesView(discussion, session.type, applySuggestions), BorderLayout.CENTER)
             add(editor(input,
-                left = listOf(reply, suggestionButton(input, suggestionLines)),
+                left = listOf(reply, suggestionButton(input, suggestionLines, session.type.term)),
                 right = listOf(resolve, openWeb)), BorderLayout.SOUTH)
         }
         popup = build(panel, input, title(discussion), onClosed)
@@ -128,16 +129,16 @@ object ThreadPopup {
     ) {
         val service = MrReviewService.getInstance(project)
         lateinit var popup: JBPopup
-        val input = inputArea(if (position == null) "Комментарий к merge request…" else "Комментарий…")
-        val send = primary("Комментировать")
+        val input = inputArea(if (position == null) msg("popup.commentPlaceholder.general", session.type.term) else msg("popup.commentPlaceholder"))
+        val send = primary(msg("popup.comment"))
         val submit = {
             val text = input.text.trim()
             if (text.isNotEmpty()) {
                 send.isEnabled = false; input.isEnabled = false
-                Bg.run(project, "Отправка комментария", work = { service.postComment(session, text, position) },
+                Bg.run(project, msg("popup.commentTask"), work = { service.postComment(session, text, position) },
                     onError = {
                         send.isEnabled = true; input.isEnabled = true
-                        Notify.error(project, "Комментарий не отправлен", it)
+                        Notify.error(project, msg("popup.commentFailed"), it)
                     }) { popup.cancel() }
             }
         }
@@ -146,12 +147,12 @@ object ThreadPopup {
 
         val where = position?.let { p ->
             val file = (p.newPath ?: p.oldPath)?.substringAfterLast('/')
-            "Новый комментарий · $file, " + if (p.isMultiLine) "строки ${p.lineLabel()}" else "строка ${p.lineLabel()}"
-        } ?: "Комментарий к !${session.mr.iid}"
+            msg(if (p.isMultiLine) "popup.newOnLines" else "popup.newOnLine", file, p.lineLabel())
+        } ?: msg("popup.newGeneral", session.ref)
 
         val panel = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(8, 10, 10, 10)
-            add(editor(input, left = listOf(send, suggestionButton(input, suggestionLines)), right = emptyList()), BorderLayout.CENTER)
+            add(editor(input, left = listOf(send, suggestionButton(input, suggestionLines, session.type.term)), right = emptyList()), BorderLayout.CENTER)
         }
         popup = build(panel, input, where, onClosed)
         popup.show(at)
@@ -160,23 +161,23 @@ object ThreadPopup {
     // ------------------------------------------------------------------ parts
 
     private fun title(d: Discussion): String {
-        val p = d.position ?: return "Обсуждение"
+        val p = d.position ?: return msg("popup.discussion")
         val file = (p.newPath ?: p.oldPath)?.substringAfterLast('/')
         return "$file:${p.lineLabel()}"
     }
 
-    /** "✓ Решено · Name" strip on top of a resolved thread. */
+    /** "✓ Resolved · Name" strip on top of a resolved thread. */
     private fun resolvedBanner(d: Discussion): JComponent = JPanel(BorderLayout()).apply {
         background = RESOLVED_BG
         border = JBUI.Borders.empty(4, 8)
         val who = d.resolvedBy?.name?.let { " · $it" }.orEmpty()
-        add(JBLabel("Решено$who", AllIcons.General.InspectionsOK, SwingConstants.LEFT))
+        add(JBLabel(msg("popup.resolvedBanner") + who, AllIcons.General.InspectionsOK, SwingConstants.LEFT))
     }
 
     /** Notes one under another, separated by thin lines; scrolls when the thread is long. */
-    private fun notesView(d: Discussion, onApply: (List<Long>, JButton) -> Unit): JComponent {
+    private fun notesView(d: Discussion, type: HostingType, onApply: (List<Long>, JButton) -> Unit): JComponent {
         val notes = WidthTrackingPanel()
-        d.notes.filter { !it.system }.forEachIndexed { i, n -> notes.add(noteView(n, separator = i > 0, onApply)) }
+        d.notes.filter { !it.system }.forEachIndexed { i, n -> notes.add(noteView(n, separator = i > 0, type, onApply)) }
 
         // Height of the content at the popup width, capped — longer threads scroll.
         // Lay out twice: the first pass gives the HTML panes their width, the second their wrapped height.
@@ -195,7 +196,7 @@ object ThreadPopup {
         for (child in c.components) if (child is Container) layoutAll(child)
     }
 
-    private fun noteView(n: Note, separator: Boolean, onApply: (List<Long>, JButton) -> Unit): JComponent = JPanel(BorderLayout(0, JBUI.scale(2))).apply {
+    private fun noteView(n: Note, separator: Boolean, type: HostingType, onApply: (List<Long>, JButton) -> Unit): JComponent = JPanel(BorderLayout(0, JBUI.scale(2))).apply {
         isOpaque = false
         border = if (separator) {
             JBUI.Borders.compound(JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0), JBUI.Borders.emptyTop(8))
@@ -210,20 +211,20 @@ object ThreadPopup {
         }
         add(header, BorderLayout.NORTH)
         add(htmlBody(n.body), BorderLayout.CENTER)
-        suggestionState(n, onApply)?.let { add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false; add(it) }, BorderLayout.SOUTH) }
+        suggestionState(n, type, onApply)?.let { add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false; add(it) }, BorderLayout.SOUTH) }
     }
 
     /** Like GitLab's "Apply suggestion": a button for the note's suggestions, or a mark that they are applied. */
-    private fun suggestionState(n: Note, onApply: (List<Long>, JButton) -> Unit): JComponent? {
+    private fun suggestionState(n: Note, type: HostingType, onApply: (List<Long>, JButton) -> Unit): JComponent? {
         if (n.suggestions.isEmpty()) return null
         val ids = n.suggestions.filter { it.appliable }.map { it.id }
         if (ids.isEmpty() && n.suggestions.all { it.applied }) {
-            return JBLabel("Suggestion применён", AllIcons.General.InspectionsOK, SwingConstants.LEFT)
+            return JBLabel(msg("popup.suggestionApplied"), AllIcons.General.InspectionsOK, SwingConstants.LEFT)
         }
-        return JButton("Применить suggestion", AllIcons.Actions.IntentionBulb).apply {
+        return JButton(msg("popup.applySuggestion"), AllIcons.Actions.IntentionBulb).apply {
             isEnabled = ids.isNotEmpty()
-            toolTipText = if (isEnabled) "GitLab закоммитит изменение в ветку MR" else
-                "GitLab не даёт применить: suggestion устарел, MR закрыт или изменение уже в коде"
+            toolTipText = if (isEnabled) msg("popup.applySuggestion.tooltip", type.title, type.term)
+            else msg("popup.applySuggestion.disabled", type.title, type.term)
             addActionListener { onApply(ids, this) }
         }
     }
@@ -240,7 +241,7 @@ object ThreadPopup {
     /** Text area with buttons: [left] — main actions, [right] — secondary; a hint about the shortcut. */
     private fun editor(input: JBTextArea, left: List<JButton>, right: List<JButton>): JComponent {
         val send = if (SystemInfo.isMac) "⌘↩" else "Ctrl+Enter"
-        val hint = JBLabel("Markdown · $send — отправить").apply {
+        val hint = JBLabel(msg("popup.hint", send)).apply {
             foreground = UIUtil.getContextHelpForeground()
             font = JBUI.Fonts.smallFont()
         }
@@ -265,10 +266,10 @@ object ThreadPopup {
      * "Suggest a change" — like GitLab's "Insert suggestion": inserts a ```suggestion block with the
      * current lines at the caret and selects them for editing. Hidden when a suggestion is impossible.
      */
-    private fun suggestionButton(input: JBTextArea, lines: List<String>?): JButton =
-        JButton("Предложить изменение", AllIcons.Actions.IntentionBulb).apply {
+    private fun suggestionButton(input: JBTextArea, lines: List<String>?, term: String): JButton =
+        JButton(msg("popup.suggest"), AllIcons.Actions.IntentionBulb).apply {
             isVisible = !lines.isNullOrEmpty()
-            toolTipText = "Вставить блок suggestion с текущими строками — автор MR сможет применить его в GitLab"
+            toolTipText = msg("popup.suggest.tooltip", term)
             addActionListener {
                 val block = Suggestion.block(lines ?: return@addActionListener)
                 val caret = input.caretPosition
@@ -309,7 +310,7 @@ object ThreadPopup {
             .setRequestFocus(true)
             .setCancelOnClickOutside(false) // don't lose a half-written comment
             .setCancelOnOtherWindowOpen(false)
-            .setCancelButton(IconButton("Закрыть (Esc)", AllIcons.Actions.Close, AllIcons.Actions.CloseHovered))
+            .setCancelButton(IconButton(msg("popup.close"), AllIcons.Actions.Close, AllIcons.Actions.CloseHovered))
             .createPopup()
         popup.addListener(object : JBPopupListener {
             override fun onClosed(event: LightweightWindowEvent) {
