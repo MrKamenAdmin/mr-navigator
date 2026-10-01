@@ -361,6 +361,16 @@ class MrReviewService(private val ideProject: Project) {
         refreshDiscussions(s)
     }
 
+    fun editNote(s: MrSession, d: Discussion, note: Note, body: String) {
+        client(s.connection).editNote(s.project, s.mr, d, note, body)
+        refreshDiscussions(s)
+    }
+
+    fun deleteNote(s: MrSession, d: Discussion, note: Note) {
+        client(s.connection).deleteNote(s.project, s.mr, d, note)
+        refreshDiscussions(s)
+    }
+
     fun applySuggestions(s: MrSession, ids: List<Long>) {
         client(s.connection).applySuggestions(ids)
         refreshDiscussions(s)

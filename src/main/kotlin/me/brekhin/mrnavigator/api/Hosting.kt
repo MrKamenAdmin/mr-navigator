@@ -76,6 +76,8 @@ interface HostingClient {
     fun createDiscussion(project: ProjectRef, mr: MergeRequest, body: String, position: Position?)
     fun reply(project: ProjectRef, mr: MergeRequest, d: Discussion, body: String)
     fun resolve(project: ProjectRef, mr: MergeRequest, d: Discussion, resolved: Boolean)
+    fun editNote(project: ProjectRef, mr: MergeRequest, d: Discussion, note: Note, body: String)
+    fun deleteNote(project: ProjectRef, mr: MergeRequest, d: Discussion, note: Note)
     fun approve(project: ProjectRef, mr: MergeRequest)
     fun unapprove(project: ProjectRef, mr: MergeRequest)
     /** Usernames of those who approved. */

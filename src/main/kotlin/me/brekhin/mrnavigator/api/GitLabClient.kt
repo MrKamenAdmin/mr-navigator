@@ -76,6 +76,14 @@ class GitLabClient(serverUrl: String, token: String) : HostingClient {
         json("PUT", "${mrPath(project, mr)}/discussions/${d.id}?resolved=$resolved", emptyMap<String, Any?>())
     }
 
+    override fun editNote(project: ProjectRef, mr: MergeRequest, d: Discussion, note: Note, body: String) {
+        json("PUT", "${mrPath(project, mr)}/discussions/${d.id}/notes/${note.id}", mapOf("body" to body))
+    }
+
+    override fun deleteNote(project: ProjectRef, mr: MergeRequest, d: Discussion, note: Note) {
+        json("DELETE", "${mrPath(project, mr)}/discussions/${d.id}/notes/${note.id}")
+    }
+
     /** GitLab commits the suggestions to the source branch, like "Apply suggestion" on the web. */
     override fun applySuggestions(ids: List<Long>) {
         if (ids.size == 1) json("PUT", "/suggestions/${ids[0]}/apply", emptyMap<String, Any?>())

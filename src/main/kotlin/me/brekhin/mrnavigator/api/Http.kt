@@ -34,6 +34,7 @@ class Http(private val provider: String, private val auth: (URLConnection) -> Un
             "GET" -> HttpRequests.request(url)
             "POST" -> HttpRequests.post(url, "application/json")
             "PUT" -> HttpRequests.put(url, "application/json")
+            "PATCH" -> HttpRequests.patch(url, "application/json")
             "DELETE" -> HttpRequests.delete(url)
             else -> error("Unsupported method $method")
         }

@@ -4,6 +4,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.ui.laf.darcula.ui.DarculaButtonUI
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.IconButton
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -12,6 +13,7 @@ import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.JBColor
 import com.intellij.ui.awt.RelativePoint
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
@@ -54,6 +56,9 @@ object ThreadPopup {
     private var current: JBPopup? = null
 
     private val WIDTH get() = JBUI.scale(540)
+
+    /** What the author can do with their own notes. */
+    private class Own(val edit: (Note, String) -> Unit, val delete: (Note) -> Unit)
     private val RESOLVED_BG = JBColor(0xE8F5E9, 0x2B3A2E)
 
     /**
@@ -107,10 +112,26 @@ object ThreadPopup {
             }
         }
 
+        val me = service.currentUserCached(session.connection)?.username
+        val own = Own(
+            edit = { note, text ->
+                busy(true)
+                Bg.run(project, msg("popup.editTask"), work = { service.editNote(session, discussion, note, text) },
+                    onError = { busy(false); Notify.error(project, msg("popup.editFailed"), it) }) { popup.cancel() }
+            },
+            delete = { note ->
+                if (Messages.showYesNoDialog(project, msg("popup.deleteConfirm"), msg("popup.delete"), null) == Messages.YES) {
+                    busy(true)
+                    Bg.run(project, msg("popup.deleteTask"), work = { service.deleteNote(session, discussion, note) },
+                        onError = { busy(false); Notify.error(project, msg("popup.deleteFailed"), it) }) { popup.cancel() }
+                }
+            },
+        )
+
         val panel = JPanel(BorderLayout(0, JBUI.scale(8))).apply {
             border = JBUI.Borders.empty(8, 10, 10, 10)
             if (discussion.resolved) add(resolvedBanner(discussion), BorderLayout.NORTH)
-            add(notesView(discussion, session, applySuggestions), BorderLayout.CENTER)
+            add(notesView(discussion, session, me, own, applySuggestions), BorderLayout.CENTER)
             add(editor(input,
                 left = listOf(reply, suggestionButton(input, suggestionLines, session.type)),
                 right = listOf(resolve, openWeb)), BorderLayout.SOUTH)
@@ -176,9 +197,9 @@ object ThreadPopup {
     }
 
     /** Notes one under another, separated by thin lines; scrolls when the thread is long. */
-    private fun notesView(d: Discussion, s: MrSession, onApply: (List<Long>, JButton) -> Unit): JComponent {
+    private fun notesView(d: Discussion, s: MrSession, me: String?, own: Own, onApply: (List<Long>, JButton) -> Unit): JComponent {
         val notes = WidthTrackingPanel()
-        d.notes.filter { !it.system }.forEachIndexed { i, n -> notes.add(noteView(n, separator = i > 0, s, onApply)) }
+        d.notes.filter { !it.system }.forEachIndexed { i, n -> notes.add(noteView(n, separator = i > 0, s, me, own, onApply)) }
 
         // Height of the content at the popup width, capped — longer threads scroll.
         // Lay out twice: the first pass gives the HTML panes their width, the second their wrapped height.
@@ -197,22 +218,51 @@ object ThreadPopup {
         for (child in c.components) if (child is Container) layoutAll(child)
     }
 
-    private fun noteView(n: Note, separator: Boolean, s: MrSession, onApply: (List<Long>, JButton) -> Unit): JComponent = JPanel(BorderLayout(0, JBUI.scale(2))).apply {
-        isOpaque = false
-        border = if (separator) {
-            JBUI.Borders.compound(JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0), JBUI.Borders.emptyTop(8))
-        } else {
-            JBUI.Borders.empty()
+    private fun noteView(n: Note, separator: Boolean, s: MrSession, me: String?, own: Own, onApply: (List<Long>, JButton) -> Unit): JComponent {
+        val panel = JPanel(BorderLayout(0, JBUI.scale(2))).apply {
+            isOpaque = false
+            border = if (separator) {
+                JBUI.Borders.compound(JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0), JBUI.Borders.emptyTop(8))
+            } else {
+                JBUI.Borders.empty()
+            }
+        }
+        val body = htmlBody(n.body, s.mr.projectWebUrl)
+        fun showInCenter(c: JComponent) {
+            (panel.layout as BorderLayout).getLayoutComponent(BorderLayout.CENTER)?.let { panel.remove(it) }
+            panel.add(c, BorderLayout.CENTER)
+            panel.revalidate(); panel.repaint()
         }
         val header = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
             isOpaque = false
             add(JBLabel(n.author?.name ?: "?").apply { font = JBUI.Fonts.label().asBold() })
             val meta = listOfNotNull(n.author?.username?.let { "@$it" }, TimeAgo.format(n.createdAt).ifEmpty { null })
             add(JBLabel("  " + meta.joinToString(" · ")).apply { foreground = UIUtil.getContextHelpForeground() })
+            if (me != null && n.author?.username == me) {
+                add(JBLabel("   "))
+                add(ActionLink(msg("popup.edit")) {
+                    val area = inputArea("").apply { text = n.body }
+                    val save = primary(msg("popup.save")).apply {
+                        addActionListener { area.text.trim().takeIf { it.isNotEmpty() }?.let { own.edit(n, it) } }
+                    }
+                    val cancel = JButton(msg("popup.cancel")).apply { addActionListener { showInCenter(body) } }
+                    showInCenter(JPanel(BorderLayout(0, JBUI.scale(4))).apply {
+                        isOpaque = false
+                        add(JBScrollPane(area).apply { preferredSize = Dimension(WIDTH, JBUI.scale(90)) }, BorderLayout.CENTER)
+                        add(row(listOf(save, cancel)), BorderLayout.SOUTH)
+                    })
+                    area.requestFocusInWindow()
+                })
+                add(JBLabel(" · "))
+                add(ActionLink(msg("popup.delete")) { own.delete(n) })
+            }
         }
-        add(header, BorderLayout.NORTH)
-        add(htmlBody(n.body, s.mr.projectWebUrl), BorderLayout.CENTER)
-        suggestionState(n, s.type, onApply)?.let { add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false; add(it) }, BorderLayout.SOUTH) }
+        panel.add(header, BorderLayout.NORTH)
+        panel.add(body, BorderLayout.CENTER)
+        suggestionState(n, s.type, onApply)?.let {
+            panel.add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false; add(it) }, BorderLayout.SOUTH)
+        }
+        return panel
     }
 
     /** Like GitLab's "Apply suggestion": a button for the note's suggestions, or a mark that they are applied. */

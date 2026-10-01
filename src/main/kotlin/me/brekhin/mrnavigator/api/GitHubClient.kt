@@ -99,6 +99,14 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
         graphql("mutation(\$id: ID!) { $mutation(input: {threadId: \$id}) { thread { id } } }", mapOf("id" to d.id))
     }
 
+    override fun editNote(project: ProjectRef, mr: MergeRequest, d: Discussion, note: Note, body: String) {
+        send("PATCH", "${commentsPath(repo(project), d)}/${note.id}", mapOf("body" to body))
+    }
+
+    override fun deleteNote(project: ProjectRef, mr: MergeRequest, d: Discussion, note: Note) {
+        http.call("DELETE", api + "${commentsPath(repo(project), d)}/${note.id}")
+    }
+
     override fun approve(project: ProjectRef, mr: MergeRequest) {
         send("POST", "${pull(project, mr)}/reviews", mapOf("event" to "APPROVE", "commit_id" to mr.sha))
     }
@@ -138,6 +146,9 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
 
         internal fun apiUrl(serverUrl: String): String =
             serverUrl.trimEnd('/').let { if (it.substringAfter("://") == "github.com") GITHUB_API else "$it/api/v3" }
+
+        /** General comments are issue comments on GitHub, line threads — review comments. */
+        internal fun commentsPath(repo: String, d: Discussion) = if (d.id.startsWith(ISSUE)) "$repo/issues/comments" else "$repo/pulls/comments"
 
         internal fun nextLink(link: String?): String? =
             link?.split(',')?.firstOrNull { it.contains("rel=\"next\"") }?.substringAfter('<')?.substringBefore('>')

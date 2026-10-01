@@ -72,6 +72,14 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
         if (resolved) send("POST", path, emptyMap<String, Any?>()) else send("DELETE", path, null)
     }
 
+    override fun editNote(project: ProjectRef, mr: MergeRequest, d: Discussion, note: Note, body: String) {
+        send("PUT", "${pr(project, mr)}/comments/${note.id}", mapOf("content" to mapOf("raw" to body)))
+    }
+
+    override fun deleteNote(project: ProjectRef, mr: MergeRequest, d: Discussion, note: Note) {
+        send("DELETE", "${pr(project, mr)}/comments/${note.id}", null)
+    }
+
     override fun approve(project: ProjectRef, mr: MergeRequest) {
         send("POST", "${pr(project, mr)}/approve", emptyMap<String, Any?>())
     }

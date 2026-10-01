@@ -38,6 +38,14 @@ class GitHubTest {
     }
 
     @Test
+    fun commentPaths() {
+        val review = GitHubClient.parseThread(obj("""{"id":"T","comments":{"nodes":[{"databaseId":7}]}}"""), "h")
+        val general = GitHubClient.parseIssueComment(obj("""{"id":5}"""))
+        assertEquals("/repos/o/r/pulls/comments", GitHubClient.commentsPath("/repos/o/r", review))
+        assertEquals("/repos/o/r/issues/comments", GitHubClient.commentsPath("/repos/o/r", general))
+    }
+
+    @Test
     fun files() {
         val renamed = GitHubClient.parseFile(obj("""{"filename":"new.go","previous_filename":"old.go","status":"renamed","changes":2,"patch":"@@ -1 +1 @@\n-a\n+b"}"""))
         assertEquals("old.go", renamed.oldPath); assertEquals("new.go", renamed.newPath); assertTrue(renamed.renamedFile)

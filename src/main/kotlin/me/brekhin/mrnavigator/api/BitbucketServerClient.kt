@@ -85,6 +85,17 @@ class BitbucketServerClient(serverUrl: String, token: String, username: String?)
         send("PUT", path, mapOf("version" to (get(path).int("version") ?: 0), "threadResolved" to resolved))
     }
 
+    override fun editNote(project: ProjectRef, mr: MergeRequest, d: Discussion, note: Note, body: String) {
+        val path = "${pr(project, mr)}/comments/${note.id}"
+        send("PUT", path, mapOf("text" to body, "version" to (get(path).int("version") ?: 0)))
+    }
+
+    /** DC refuses (409) to delete a comment that has replies; its message is shown to the user. */
+    override fun deleteNote(project: ProjectRef, mr: MergeRequest, d: Discussion, note: Note) {
+        val path = "${pr(project, mr)}/comments/${note.id}"
+        http.call("DELETE", api + path + "?version=" + (get(path).int("version") ?: 0))
+    }
+
     override fun approve(project: ProjectRef, mr: MergeRequest) = setStatus(project, mr, "APPROVED")
 
     override fun unapprove(project: ProjectRef, mr: MergeRequest) = setStatus(project, mr, "UNAPPROVED")
