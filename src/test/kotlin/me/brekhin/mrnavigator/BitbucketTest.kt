@@ -1,5 +1,6 @@
 package me.brekhin.mrnavigator
 
+import me.brekhin.mrnavigator.api.ApiException
 import me.brekhin.mrnavigator.api.BitbucketCloudClient
 import me.brekhin.mrnavigator.api.BitbucketServerClient
 import me.brekhin.mrnavigator.api.Connection
@@ -34,6 +35,28 @@ class BitbucketTest {
         assertEquals("alice", mr.author?.username); assertEquals("Alice", mr.author?.name); assertEquals("h", mr.sha)
         assertEquals("https://bitbucket.org/team/repo/pull-requests/7", mr.webUrl)
         assertNull(BitbucketCloudClient.parsePull(m, null, "FORK/REPO").fetchUrl)
+    }
+
+    @Test
+    fun cloudForkRefs() {
+        val m = obj("""{"source":{"commit":{"hash":"abc123def456"},"repository":{"full_name":"fork/repo"}},
+                         "destination":{"commit":{"hash":"0123456789ab"}}}""")
+        val pr = "/repositories/team/repo/pullrequests/7"
+        val calls = ArrayList<String>()
+        val refs = BitbucketCloudClient.diffRefs(m, "team/repo", pr) { path ->
+            calls += path
+            when {
+                path.startsWith("$pr/commits") -> obj("""{"values":[{"hash":"ffff"},{"hash":"abc123def456aaaa"}]}""")
+                path.endsWith("/commit/0123456789ab") -> obj("""{"hash":"0123456789abbbbb"}""")
+                "/merge-base/" in path -> obj("""{"hash":"base"}""")
+                else -> throw ApiException("unexpected $path", 404)
+            }
+        }
+        assertEquals(DiffRefs("base", "0123456789abbbbb", "abc123def456aaaa"), refs)
+        // The fork may be unreadable with a token of the target repository.
+        assertTrue(calls.none { it.startsWith("/repositories/fork/") })
+        // A failed lookup leaves the refs unknown instead of failing the whole pull request.
+        assertNull(BitbucketCloudClient.diffRefs(m, "team/repo", pr) { throw ApiException("forbidden", 403) })
     }
 
     @Test

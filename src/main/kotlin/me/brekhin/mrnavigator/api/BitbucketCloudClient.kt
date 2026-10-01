@@ -54,18 +54,9 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
     }
 
     override fun mergeRequest(project: ProjectRef, iid: Long): MergeRequest {
-        val m = get("${repo(project.path)}/pullrequests/$iid")
-        val sourceRepo = m.o("source")?.o("repository")?.str("full_name") ?: project.path
-        val src = m.o("source")?.o("commit")?.str("hash")
-        val dst = m.o("destination")?.o("commit")?.str("hash")
-        // The pull request carries 12-character hashes; git needs full ones.
-        val refs = if (src != null && dst != null) {
-            val head = get("${repo(sourceRepo)}/commit/$src").str("hash")
-            val start = get("${repo(project.path)}/commit/$dst").str("hash")
-            val base = get("${repo(project.path)}/merge-base/$src..$dst").str("hash")
-            if (head != null && start != null && base != null) DiffRefs(base, start, head) else null
-        } else null
-        return parsePull(m, refs, project.path)
+        val path = "${repo(project.path)}/pullrequests/$iid"
+        val m = get(path)
+        return parsePull(m, diffRefs(m, project.path, path) { get(it) }, project.path)
     }
 
     /** Redirects to /diff/…, a raw git diff against the merge base. */
@@ -103,6 +94,26 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
         internal fun user(m: Map<String, Any?>?): User? = m?.let {
             val nickname = it.str("nickname") ?: it.str("account_id") ?: ""
             User(0, nickname, it.str("display_name") ?: nickname)
+        }
+
+        /**
+         * Full hashes for the diff — the pull request carries 12-character ones. The head comes from the PR's own
+         * commit list, readable with access to the target repository alone (unlike a fork). A failed lookup leaves
+         * the refs unknown instead of failing the whole pull request: the card, comments and approve still work.
+         */
+        internal fun diffRefs(m: Map<String, Any?>, repoPath: String, prPath: String, get: (String) -> Map<String, Any?>): DiffRefs? {
+            val src = m.o("source")?.o("commit")?.str("hash") ?: return null
+            val dst = m.o("destination")?.o("commit")?.str("hash") ?: return null
+            fun lookup(path: String) = try {
+                get(path)
+            } catch (e: ApiException) {
+                null
+            }
+            val head = lookup("$prPath/commits?pagelen=50")?.a("values")
+                ?.mapNotNull { it.obj().str("hash") }?.firstOrNull { it.startsWith(src) } ?: return null
+            val start = lookup("/repositories/$repoPath/commit/$dst")?.str("hash") ?: return null
+            val base = lookup("/repositories/$repoPath/merge-base/$src..$dst")?.str("hash") ?: return null
+            return DiffRefs(base, start, head)
         }
 
         /** [repoPath] — the repository the PR is in; a source in another one (a fork) is fetched by URL. */
