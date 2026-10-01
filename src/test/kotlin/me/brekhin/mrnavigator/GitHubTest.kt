@@ -24,28 +24,17 @@ class GitHubTest {
             "user":{"login":"alice","id":1},"head":{"ref":"feature","sha":"h1"},"base":{"ref":"main","sha":"b1"},
             "html_url":"https://github.com/o/r/pull/42","updated_at":"2026-09-30T10:00:00Z","comments":2,"review_comments":3,
             "mergeable":false,"merged_at":null}""")
-        val mr = GitHubClient.parsePull(m, "mb")
+        val mr = GitHubClient.parsePull(m)
         assertEquals(42L, mr.iid)
         assertEquals("feature", mr.sourceBranch); assertEquals("main", mr.targetBranch)
-        assertEquals(DiffRefs("mb", "b1", "h1"), mr.diffRefs); assertEquals("h1", mr.sha)
+        // The merge base is computed by git after fetching.
+        assertEquals(DiffRefs(null, "b1", "h1"), mr.diffRefs); assertEquals("h1", mr.sha)
         assertEquals("refs/pull/42/head", mr.fetchRef); assertNull(mr.fetchUrl)
         assertEquals(5, mr.userNotesCount)
         assertTrue(mr.draft); assertTrue(mr.hasConflicts); assertEquals("open", mr.state)
         assertEquals("alice", mr.author?.username)
-        assertNull(GitHubClient.parsePull(m, null).diffRefs)
-        assertEquals("merged", GitHubClient.parsePull(obj("""{"number":1,"state":"closed","merged_at":"2026-09-30T10:00:00Z"}"""), null).state)
-    }
-
-    @Test
-    fun mergeBase() {
-        val repo = "/repos/o/r"
-        assertEquals("mb", GitHubClient.mergeBase(repo, "b1", "h1") { path ->
-            assertEquals("$repo/compare/b1...h1?per_page=1", path)
-            obj("""{"merge_base_commit":{"sha":"mb"}}""")
-        })
-        // A failed compare leaves the refs unknown instead of failing the whole pull request.
-        assertNull(GitHubClient.mergeBase(repo, "b1", "h1") { throw ApiException("GitHub: error 500", 500) })
-        assertNull(GitHubClient.mergeBase(repo, null, "h1") { error("not called") })
+        assertNull(GitHubClient.parsePull(obj("""{"number":1,"base":{"sha":"b"}}""")).diffRefs)
+        assertEquals("merged", GitHubClient.parsePull(obj("""{"number":1,"state":"closed","merged_at":"2026-09-30T10:00:00Z"}""")).state)
     }
 
     @Test

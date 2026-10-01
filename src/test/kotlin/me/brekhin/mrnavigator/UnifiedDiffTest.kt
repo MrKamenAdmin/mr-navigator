@@ -59,6 +59,17 @@ class UnifiedDiffTest {
     }
 
     @Test
+    fun quotedPaths() {
+        // git quotes non-ASCII names as octal bytes of UTF-8: "При.go".
+        val p = "\"a/\\320\\237\\321\\200\\320\\270.go\""
+        val diff = "diff --git $p ${p.replace("a/", "b/")}\n--- $p\n+++ ${p.replace("a/", "b/")}\n@@ -1 +1 @@\n-a\n+b\n"
+        assertEquals("При.go", UnifiedDiff.split(diff).single().newPath)
+        val q = "\"a/say \\\"hi\\\"\\t.go\""
+        val quoted = "diff --git $q ${q.replace("a/", "b/")}\n--- $q\n+++ ${q.replace("a/", "b/")}\n@@ -1 +1 @@\n-a\n+b\n"
+        assertEquals("say \"hi\"\t.go", UnifiedDiff.split(quoted).single().newPath)
+    }
+
+    @Test
     fun emptyDiff() {
         assertEquals(emptyList(), UnifiedDiff.split(""))
     }

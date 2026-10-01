@@ -49,7 +49,33 @@ object UnifiedDiff {
         return PREFIXES.firstOrNull { p.startsWith(it) }?.let { p.removePrefix(it) } ?: p
     }
 
-    private fun unquote(s: String) = s.trim().removeSurrounding("\"")
+    /** A path git quoted for unusual characters: C escapes, non-ASCII as octal bytes of UTF-8 ("\320\237"). */
+    private fun unquote(raw: String): String {
+        val s = raw.trim()
+        if (s.length < 2 || !s.startsWith('"') || !s.endsWith('"')) return s
+        val out = java.io.ByteArrayOutputStream()
+        var i = 1
+        val end = s.length - 1
+        while (i < end) {
+            val c = s[i]
+            if (c != '\\' || i + 1 >= end) {
+                out.writeBytes(c.toString().toByteArray(Charsets.UTF_8))
+                i++
+                continue
+            }
+            val n = s[i + 1]
+            if (n in '0'..'7') {
+                var j = i + 1
+                while (j < minOf(i + 4, end) && s[j] in '0'..'7') j++
+                out.write(s.substring(i + 1, j).toInt(8))
+                i = j
+            } else {
+                out.write(when (n) { 'n' -> '\n'; 't' -> '\t'; 'r' -> '\r'; 'a' -> '\u0007'; 'b' -> '\b'; 'f' -> '\u000c'; 'v' -> '\u000b'; else -> n }.code)
+                i += 2
+            }
+        }
+        return out.toString(Charsets.UTF_8)
+    }
 
     /** Paths from "a/x b/y" — for files without ---/+++ lines (binary, mode or rename only). */
     private fun gitPaths(rest: String): Pair<String, String> {

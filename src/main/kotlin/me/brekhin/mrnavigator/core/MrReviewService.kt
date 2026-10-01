@@ -38,7 +38,17 @@ class MrSession(
 
     fun isOutdated(d: Discussion): Boolean = d.position?.isOutdatedFor(mr.diffRefs?.headSha) == true
 
-    val refs: DiffRefs get() = mr.diffRefs ?: throw ApiException(msg("error.noDiffRefs", ref, type.title))
+    /** Merge base computed by git when the server doesn't give it (GitHub, Bitbucket Cloud); set by ensureCommits. */
+    @Volatile var localBase: String? = null
+
+    /** Diff refs with the merge base known — for GitHub and Bitbucket Cloud only after [MrReviewService.ensureCommits]. */
+    val refs: DiffRefs
+        get() {
+            val r = mr.diffRefs ?: throw ApiException(msg("error.noDiffRefs", ref, type.title))
+            return if (r.baseSha != null) r else r.copy(baseSha = localBase ?: throw ApiException(msg("error.noMergeBase", ref)))
+        }
+
+    val base: String get() = refs.baseSha!!
     private val lineMaps = HashMap<FileChange, DiffLineMap>()
 
     fun lineMap(change: FileChange): DiffLineMap = synchronized(lineMaps) { lineMaps.getOrPut(change) { DiffLineMap(change.diff) } }
@@ -248,17 +258,20 @@ class MrReviewService(private val ideProject: Project) {
         false
     }
 
-    /** Makes sure base and head commits exist locally (needed to show file contents). */
+    /** Makes sure base and head commits exist locally (needed to show file contents); computes a missing merge base. */
     fun ensureCommits(s: MrSession) {
-        val refs = s.refs
+        val r = s.mr.diffRefs ?: throw ApiException(msg("error.noDiffRefs", s.ref, s.type.title))
         val remote = s.remoteName
-        if (!s.git.hasCommit(refs.headSha)) {
+        if (!s.git.hasCommit(r.headSha)) {
             s.git.run("fetch", s.mr.fetchUrl ?: remote, "+${s.mr.fetchRef}:refs/mr-review/${s.mr.iid}", timeoutMs = 300_000)
         }
-        if (!s.git.hasCommit(refs.baseSha)) {
+        if (!s.git.hasCommit(r.baseSha ?: s.localBase ?: r.startSha)) {
             s.git.run("fetch", remote, s.mr.targetBranch, timeoutMs = 300_000)
         }
-        if (!s.git.hasCommit(refs.headSha) || !s.git.hasCommit(refs.baseSha)) {
+        if (r.baseSha == null && s.localBase == null && s.git.hasCommit(r.startSha) && s.git.hasCommit(r.headSha)) {
+            s.localBase = s.git.run("merge-base", r.startSha, r.headSha, allowFail = true).trim().ifEmpty { null }
+        }
+        if (!s.git.hasCommit(r.headSha) || !s.git.hasCommit(s.base)) {
             throw GitException(msg("error.fetchFailed", s.type.term, remote))
         }
     }

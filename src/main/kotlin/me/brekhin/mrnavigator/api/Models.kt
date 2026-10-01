@@ -16,7 +16,8 @@ data class User(
     }
 }
 
-data class DiffRefs(val baseSha: String, val startSha: String, val headSha: String) {
+/** [baseSha] — the merge base; null when the server doesn't give it (GitHub, Bitbucket Cloud) and git computes it. */
+data class DiffRefs(val baseSha: String?, val startSha: String, val headSha: String) {
     companion object {
         fun from(m: Map<String, Any?>?): DiffRefs? {
             m ?: return null

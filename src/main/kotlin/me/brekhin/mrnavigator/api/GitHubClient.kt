@@ -57,12 +57,12 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
                 }
             }
             .filter { search.isNullOrBlank() || it.str("title").orEmpty().contains(search.trim(), ignoreCase = true) }
-            .map { parsePull(it, null) }
+            .map { parsePull(it) }
     }
 
     override fun mergeRequest(project: ProjectRef, iid: Long): MergeRequest {
         val m = get("${repo(project)}/pulls/$iid").obj()
-        return parsePull(m, mergeBase(repo(project), m.o("base")?.str("sha"), m.o("head")?.str("sha")) { get(it) })
+        return parsePull(m)
     }
 
     override fun changes(project: ProjectRef, mr: MergeRequest): List<FileChange> =
@@ -139,19 +139,6 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
         internal fun apiUrl(serverUrl: String): String =
             serverUrl.trimEnd('/').let { if (it.substringAfter("://") == "github.com") GITHUB_API else "$it/api/v3" }
 
-        /**
-         * The PR diff is against the merge base, not the target branch head. A failed compare leaves it
-         * unknown instead of failing the whole pull request: the card, comments and approve still work.
-         */
-        internal fun mergeBase(repo: String, base: String?, head: String?, get: (String) -> Any?): String? {
-            if (base == null || head == null) return null
-            return try {
-                get("$repo/compare/$base...$head?per_page=1").obj().o("merge_base_commit")?.str("sha")
-            } catch (e: ApiException) {
-                null
-            }
-        }
-
         internal fun nextLink(link: String?): String? =
             link?.split(',')?.firstOrNull { it.contains("rel=\"next\"") }?.substringAfter('<')?.substringBefore('>')
 
@@ -160,7 +147,8 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
             User(it.long("id") ?: 0, login, it.str("name")?.takeIf { n -> n.isNotBlank() } ?: login)
         }
 
-        internal fun parsePull(m: Map<String, Any?>, mergeBase: String?): MergeRequest {
+        /** The merge base is computed by git after fetching (see MrReviewService.ensureCommits). */
+        internal fun parsePull(m: Map<String, Any?>): MergeRequest {
             val base = m.o("base")
             val head = m.o("head")
             val baseSha = base?.str("sha")
@@ -177,7 +165,7 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
                 targetBranch = base?.str("ref") ?: "",
                 webUrl = m.str("html_url") ?: "",
                 sha = headSha,
-                diffRefs = if (mergeBase != null && baseSha != null && headSha != null) DiffRefs(mergeBase, baseSha, headSha) else null,
+                diffRefs = if (baseSha != null && headSha != null) DiffRefs(null, baseSha, headSha) else null,
                 updatedAt = m.str("updated_at"),
                 userNotesCount = (m.int("comments") ?: 0) + (m.int("review_comments") ?: 0),
                 hasConflicts = m["mergeable"] == false,

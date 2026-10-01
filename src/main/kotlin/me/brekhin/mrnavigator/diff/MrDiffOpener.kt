@@ -72,7 +72,7 @@ object MrDiffOpener {
 
                 val left: DiffContent =
                     if (change.newFile) factory.createEmpty()
-                    else bytesContent(git.showFile(refs.baseSha, change.oldPath), change.oldPath)
+                    else bytesContent(git.showFile(session.base, change.oldPath), change.oldPath)
 
                 var rightIsLocal = false
                 val right: DiffContent = when {
@@ -90,7 +90,7 @@ object MrDiffOpener {
                 }
 
                 val mr = session.mr
-                val leftTitle = if (change.newFile) msg("diff.newFile") else "${mr.targetBranch} · ${refs.baseSha.take(8)} · ${change.oldPath}"
+                val leftTitle = if (change.newFile) msg("diff.newFile") else "${mr.targetBranch} · ${session.base.take(8)} · ${change.oldPath}"
                 val rightTitle = when {
                     change.deletedFile -> msg("diff.deleted")
                     rightIsLocal -> msg("diff.local", mr.sourceBranch, change.newPath)

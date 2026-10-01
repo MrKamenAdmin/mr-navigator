@@ -1,7 +1,11 @@
 package me.brekhin.mrnavigator
 
+import me.brekhin.mrnavigator.api.ApiException
+import me.brekhin.mrnavigator.api.DiffRefs
 import me.brekhin.mrnavigator.api.FileChange
+import me.brekhin.mrnavigator.api.GitHubClient
 import me.brekhin.mrnavigator.api.Http
+import me.brekhin.mrnavigator.api.ProjectRef
 import me.brekhin.mrnavigator.api.basicOrBearer
 import me.brekhin.mrnavigator.api.LinePoint
 import me.brekhin.mrnavigator.api.MergeRequest
@@ -10,9 +14,12 @@ import me.brekhin.mrnavigator.api.NoteSuggestion
 import me.brekhin.mrnavigator.api.Position
 import me.brekhin.mrnavigator.core.DiffLineMap
 import me.brekhin.mrnavigator.core.HiddenFiles
+import me.brekhin.mrnavigator.core.MrSession
+import me.brekhin.mrnavigator.git.GitCli
 import me.brekhin.mrnavigator.git.RemoteUrl
 import me.brekhin.mrnavigator.util.Json
 import me.brekhin.mrnavigator.util.Markdown
+import me.brekhin.mrnavigator.util.MrBundle
 import me.brekhin.mrnavigator.util.Suggestion
 import me.brekhin.mrnavigator.util.TimeAgo
 import me.brekhin.mrnavigator.util.obj
@@ -135,6 +142,19 @@ class LogicTest {
         // new file
         val nf = DiffLineMap("@@ -0,0 +1,2 @@\n+a\n+b\n")
         assertTrue(nf.isAdded(1) && nf.isAdded(2))
+    }
+
+    @Test
+    fun mergeBaseIsRequiredForRefs() {
+        MrBundle.locale = java.util.Locale.ENGLISH
+        val mr = GitHubClient.parsePull(Json.parse("""{"number":5,"base":{"sha":"b"},"head":{"sha":"h"}}""").obj())
+        val s = MrSession(ProjectRef("https://github.com", "o/r"), Connection(HostingType.GITHUB, "https://github.com"),
+            GitCli(java.io.File(".")), "origin", mr, emptyList(), emptyList(), emptyList<String>())
+        val e = kotlin.runCatching { s.refs }.exceptionOrNull()
+        assertTrue(e is ApiException && "merge base" in e.message!!, e.toString())
+        s.localBase = "mb"
+        assertEquals(DiffRefs("mb", "b", "h"), s.refs)
+        assertEquals("mb", s.base)
     }
 
     @Test

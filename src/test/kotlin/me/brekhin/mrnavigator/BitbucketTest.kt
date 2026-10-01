@@ -50,11 +50,11 @@ class BitbucketTest {
             when {
                 path.startsWith("$pr/commits") -> obj("""{"values":[{"hash":"ffff"},{"hash":"abc123def456aaaa"}]}""")
                 path.endsWith("/commit/0123456789ab") -> obj("""{"hash":"0123456789abbbbb"}""")
-                "/merge-base/" in path -> obj("""{"hash":"base"}""")
                 else -> throw ApiException("unexpected $path", 404)
             }
         }
-        assertEquals(DiffRefs("base", "0123456789abbbbb", "abc123def456aaaa"), refs)
+        assertEquals(DiffRefs(null, "0123456789abbbbb", "abc123def456aaaa"), refs)
+        assertTrue(calls.none { "/merge-base/" in it })
         // The fork may be unreadable with a token of the target repository.
         assertTrue(calls.none { it.startsWith("/repositories/fork/") })
         // A failed lookup leaves the refs unknown instead of failing the whole pull request.

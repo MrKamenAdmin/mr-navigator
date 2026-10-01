@@ -134,7 +134,7 @@ class DiffLineMap(diff: String) {
      * (as in GitLab, the position itself points at the last line of the range).
      */
     fun position(
-        baseSha: String, startSha: String, headSha: String,
+        baseSha: String?, startSha: String, headSha: String,
         oldPath: String, newPath: String,
         end: Line, start: Line? = null,
     ): Position {
@@ -148,7 +148,7 @@ class DiffLineMap(diff: String) {
 
     /** Single-line shortcut. */
     fun position(
-        baseSha: String, startSha: String, headSha: String,
+        baseSha: String?, startSha: String, headSha: String,
         oldPath: String, newPath: String,
         line: Int, onNewSide: Boolean,
     ): Position = position(baseSha, startSha, headSha, oldPath, newPath, Line(line, onNewSide))

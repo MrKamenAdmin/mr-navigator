@@ -104,8 +104,9 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
 
         /**
          * Full hashes for the diff — the pull request carries 12-character ones. The head comes from the PR's own
-         * commit list, readable with access to the target repository alone (unlike a fork). A failed lookup leaves
-         * the refs unknown instead of failing the whole pull request: the card, comments and approve still work.
+         * commit list, readable with access to the target repository alone (unlike a fork); the merge base is
+         * computed by git after fetching. A failed lookup leaves the refs unknown instead of failing the whole
+         * pull request: the card, comments and approve still work.
          */
         internal fun diffRefs(m: Map<String, Any?>, repoPath: String, prPath: String, get: (String) -> Map<String, Any?>): DiffRefs? {
             val src = m.o("source")?.o("commit")?.str("hash") ?: return null
@@ -118,8 +119,7 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
             val head = lookup("$prPath/commits?pagelen=50")?.a("values")
                 ?.mapNotNull { it.obj().str("hash") }?.firstOrNull { it.startsWith(src) } ?: return null
             val start = lookup("/repositories/$repoPath/commit/$dst")?.str("hash") ?: return null
-            val base = lookup("/repositories/$repoPath/merge-base/$src..$dst")?.str("hash") ?: return null
-            return DiffRefs(base, start, head)
+            return DiffRefs(null, start, head)
         }
 
         /** [repoPath] — the repository the PR is in; a source in another one (a fork) is fetched by URL. */
