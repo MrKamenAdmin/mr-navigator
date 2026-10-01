@@ -28,7 +28,7 @@ class MrSession(
     val mr: MergeRequest,
     val changes: List<FileChange>,
     @Volatile var discussions: List<Discussion>,
-    @Volatile var approvedBy: List<String>,
+    @Volatile var reviews: Reviews,
     /** Paths the user has already looked at in this version of the MR (kept between IDE restarts). */
     val viewed: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet(),
 ) {
@@ -53,10 +53,12 @@ class MrSession(
 
     fun lineMap(change: FileChange): DiffLineMap = synchronized(lineMaps) { lineMaps.getOrPut(change) { DiffLineMap(change.diff) } }
 
-    fun threadsFor(change: FileChange): List<Discussion> = discussions.filter { d ->
-        !d.isSystem && d.position != null &&
-            (d.position!!.newPath == change.newPath || (d.position!!.newPath == null && d.position!!.oldPath == change.oldPath))
-    }
+    /** Whether a line position belongs to [change] (new path; old path for a deleted file). */
+    fun onFile(p: Position, change: FileChange): Boolean =
+        p.newPath == change.newPath || (p.newPath == null && p.oldPath == change.oldPath)
+
+    fun threadsFor(change: FileChange): List<Discussion> =
+        discussions.filter { d -> !d.isSystem && d.position?.let { onFile(it, change) } == true }
 
     /** Threads that are not attached to a line (general discussion). */
     val generalThreads: List<Discussion> get() = discussions.filter { !it.isSystem && it.position == null }
@@ -200,8 +202,8 @@ class MrReviewService(private val ideProject: Project) {
         val full = client.mergeRequest(repo.project, mr.iid)
         val changes = client.changes(repo.project, full)
         val discussions = client.discussions(repo.project, full)
-        val approved = client.approvedBy(repo.project, full)
-        val s = MrSession(repo.project, repo.connection, GitCli(repo.root), repo.remoteName, full, changes, discussions, approved)
+        val reviews = client.reviews(repo.project, full)
+        val s = MrSession(repo.project, repo.connection, GitCli(repo.root), repo.remoteName, full, changes, discussions, reviews)
         loadViewed(s)
         session = s
         fireChanged()
@@ -232,8 +234,8 @@ class MrReviewService(private val ideProject: Project) {
         fireChanged()
     }
 
-    fun refreshApprovals(s: MrSession) {
-        s.approvedBy = client(s.connection).approvedBy(s.project, s.mr)
+    fun refreshReviews(s: MrSession) {
+        s.reviews = client(s.connection).reviews(s.project, s.mr)
         fireChanged()
     }
 
@@ -374,6 +376,47 @@ class MrReviewService(private val ideProject: Project) {
     fun applySuggestions(s: MrSession, ids: List<Long>) {
         client(s.connection).applySuggestions(ids)
         refreshDiscussions(s)
+    }
+
+    // ------------------------------------------------------------- review
+
+    private val drafts = java.util.concurrent.ConcurrentHashMap<String, MutableList<Draft>>()
+    private fun draftsKey(s: MrSession) = "me.brekhin.mrnavigator.drafts.${s.project.serverUrl}/${s.project.path}!${s.mr.iid}"
+
+    private fun draftList(s: MrSession): MutableList<Draft> = drafts.getOrPut(draftsKey(s)) {
+        java.util.Collections.synchronizedList(Drafts.decode(PropertiesComponent.getInstance(ideProject).getValue(draftsKey(s))).toMutableList())
+    }
+
+    /** Comments kept in the IDE until the review is submitted; they survive restarts. */
+    fun drafts(s: MrSession): List<Draft> = draftList(s).let { synchronized(it) { it.toList() } }
+
+    fun saveDraft(s: MrSession, draft: Draft) = changeDrafts(s) { list ->
+        val i = list.indexOfFirst { it.id == draft.id }
+        if (i >= 0) list[i] = draft else list += draft
+    }
+
+    fun removeDraft(s: MrSession, id: String) = changeDrafts(s) { list -> list.removeAll { it.id == id } }
+
+    private fun changeDrafts(s: MrSession, change: (MutableList<Draft>) -> Unit) {
+        val list = draftList(s)
+        synchronized(list) {
+            change(list)
+            PropertiesComponent.getInstance(ideProject).setValue(draftsKey(s), Drafts.encode(list).takeIf { list.isNotEmpty() })
+        }
+        fireChanged()
+    }
+
+    /** Sends the drafts with [summary] and [verdict]; the drafts are dropped only after the server took them. */
+    fun submitReview(s: MrSession, verdict: Verdict, summary: String) {
+        client(s.connection).submitReview(s.project, s.mr, drafts(s), verdict, summary)
+        changeDrafts(s) { it.clear() }
+        refreshDiscussions(s)
+        refreshReviews(s)
+    }
+
+    fun withdrawChanges(s: MrSession) {
+        client(s.connection).withdrawChanges(s.project, s.mr)
+        refreshReviews(s)
     }
 
     companion object {

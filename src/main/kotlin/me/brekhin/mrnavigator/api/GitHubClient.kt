@@ -111,16 +111,23 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
         send("POST", "${pull(project, mr)}/reviews", mapOf("event" to "APPROVE", "commit_id" to mr.sha))
     }
 
-    /** A reviewer can't withdraw an approval on GitHub, only dismiss it — that needs write access to the repository. */
-    override fun unapprove(project: ProjectRef, mr: MergeRequest) {
+    override fun unapprove(project: ProjectRef, mr: MergeRequest) = dismiss(project, mr, "APPROVED")
+
+    override fun withdrawChanges(project: ProjectRef, mr: MergeRequest) = dismiss(project, mr, "CHANGES_REQUESTED")
+
+    /** A reviewer can't withdraw their review on GitHub, only dismiss it — that needs write access to the repository. */
+    private fun dismiss(project: ProjectRef, mr: MergeRequest, state: String) {
         val me = currentUser().username
-        val review = paged("${pull(project, mr)}/reviews")
-            .lastOrNull { it.o("user")?.str("login") == me && it.str("state") == "APPROVED" } ?: return
-        send("PUT", "${pull(project, mr)}/reviews/${review.long("id")}/dismissals",
-            mapOf("message" to "Approval withdrawn", "event" to "DISMISS"))
+        val review = paged("${pull(project, mr)}/reviews").lastOrNull { it.o("user")?.str("login") == me && it.str("state") == state } ?: return
+        send("PUT", "${pull(project, mr)}/reviews/${review.long("id")}/dismissals", mapOf("message" to "Review withdrawn", "event" to "DISMISS"))
     }
 
-    override fun approvedBy(project: ProjectRef, mr: MergeRequest): List<String> = approvers(paged("${pull(project, mr)}/reviews"))
+    override fun reviews(project: ProjectRef, mr: MergeRequest): Reviews = reviewStates(paged("${pull(project, mr)}/reviews"))
+
+    /** One review with all comments: one notification. */
+    override fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String) {
+        send("POST", "${pull(project, mr)}/reviews", reviewPayload(drafts, verdict, summary, mr.diffRefs?.headSha ?: mr.sha))
+    }
 
     companion object {
         private const val GITHUB_API = "https://api.github.com"
@@ -253,15 +260,22 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
             return payload
         }
 
-        /** Users whose latest decisive review is an approval (comment-only reviews don't change the state). */
-        internal fun approvers(reviews: List<Map<String, Any?>>): List<String> {
+        /** The latest decisive review of each user (comment-only reviews don't change the state). */
+        internal fun reviewStates(reviews: List<Map<String, Any?>>): Reviews {
             val last = LinkedHashMap<String, String>()
             for (r in reviews) {
                 val login = r.o("user")?.str("login") ?: continue
                 val state = r.str("state") ?: continue
                 if (state != "COMMENTED" && state != "PENDING") last[login] = state
             }
-            return last.filterValues { it == "APPROVED" }.keys.toList()
+            return Reviews(last.filterValues { it == "APPROVED" }.keys.toList(), last.filterValues { it == "CHANGES_REQUESTED" }.keys.toList())
+        }
+
+        internal fun reviewPayload(drafts: List<Draft>, verdict: Verdict, summary: String, headSha: String?): Map<String, Any?> {
+            val payload = linkedMapOf<String, Any?>("commit_id" to headSha, "event" to verdict.name)
+            if (summary.isNotBlank()) payload["body"] = summary
+            if (drafts.isNotEmpty()) payload["comments"] = drafts.map { commentPayload(it.body, it.position, null) - "commit_id" }
+            return payload
         }
     }
 }

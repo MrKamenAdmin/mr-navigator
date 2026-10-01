@@ -2,9 +2,12 @@ package me.brekhin.mrnavigator
 
 import me.brekhin.mrnavigator.api.ApiException
 import me.brekhin.mrnavigator.api.DiffRefs
+import me.brekhin.mrnavigator.api.Draft
 import me.brekhin.mrnavigator.api.GitHubClient
 import me.brekhin.mrnavigator.api.HostingType
 import me.brekhin.mrnavigator.api.LinePoint
+import me.brekhin.mrnavigator.api.Reviews
+import me.brekhin.mrnavigator.api.Verdict
 import me.brekhin.mrnavigator.core.DiffLineMap
 import me.brekhin.mrnavigator.util.Json
 import me.brekhin.mrnavigator.util.obj
@@ -43,6 +46,16 @@ class GitHubTest {
         val general = GitHubClient.parseIssueComment(obj("""{"id":5}"""))
         assertEquals("/repos/o/r/pulls/comments", GitHubClient.commentsPath("/repos/o/r", review))
         assertEquals("/repos/o/r/issues/comments", GitHubClient.commentsPath("/repos/o/r", general))
+    }
+
+    @Test
+    fun reviewPayloads() {
+        val draft = Draft("1", "fix", map.position("b", "s", "h", "f.go", "f.go", 3, onNewSide = true))
+        assertEquals(
+            mapOf("commit_id" to "h", "event" to "COMMENT", "comments" to listOf(mapOf("body" to "fix", "path" to "f.go", "line" to 3, "side" to "RIGHT"))),
+            GitHubClient.reviewPayload(listOf(draft), Verdict.COMMENT, " ", "h"),
+        )
+        assertEquals(mapOf("commit_id" to "h", "event" to "REQUEST_CHANGES", "body" to "why"), GitHubClient.reviewPayload(emptyList(), Verdict.REQUEST_CHANGES, "why", "h"))
     }
 
     @Test
@@ -101,7 +114,7 @@ class GitHubTest {
             """{"user":{"login":"a"},"state":"APPROVED"}""", """{"user":{"login":"b"},"state":"APPROVED"}""",
             """{"user":{"login":"b"},"state":"COMMENTED"}""", """{"user":{"login":"a"},"state":"CHANGES_REQUESTED"}""",
         ).map { obj(it) }
-        assertEquals(listOf("b"), GitHubClient.approvers(reviews))
+        assertEquals(Reviews(approved = listOf("b"), changesRequested = listOf("a")), GitHubClient.reviewStates(reviews))
         assertEquals("https://api.github.com/x?page=2",
             GitHubClient.nextLink("""<https://api.github.com/x?page=2>; rel="next", <https://api.github.com/x?page=5>; rel="last""""))
         assertNull(GitHubClient.nextLink("""<https://api.github.com/x?page=1>; rel="prev""""))

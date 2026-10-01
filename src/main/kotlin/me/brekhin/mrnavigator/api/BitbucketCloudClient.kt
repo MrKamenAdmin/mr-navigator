@@ -88,10 +88,30 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
         send("DELETE", "${pr(project, mr)}/approve", null)
     }
 
-    override fun approvedBy(project: ProjectRef, mr: MergeRequest): List<String> =
-        get(pr(project, mr)).a("participants").map { it.obj() }.filter { it.bool("approved") }.mapNotNull { it.o("user")?.str("nickname") }
+    override fun reviews(project: ProjectRef, mr: MergeRequest): Reviews =
+        participants(get(pr(project, mr)).a("participants").map { it.obj() })
+
+    /** Bitbucket Cloud has no API for a batched review: the comments go one by one. */
+    override fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String) {
+        drafts.forEach { createDiscussion(project, mr, it.body, it.position) }
+        if (summary.isNotBlank()) createDiscussion(project, mr, summary, null)
+        when (verdict) {
+            Verdict.APPROVE -> approve(project, mr)
+            Verdict.REQUEST_CHANGES -> send("POST", "${pr(project, mr)}/request-changes", emptyMap<String, Any?>())
+            Verdict.COMMENT -> Unit
+        }
+    }
+
+    override fun withdrawChanges(project: ProjectRef, mr: MergeRequest) {
+        send("DELETE", "${pr(project, mr)}/request-changes", null)
+    }
 
     companion object {
+        internal fun participants(ps: List<Map<String, Any?>>): Reviews {
+            fun who(p: Map<String, Any?>) = p.o("user")?.str("nickname")
+            return Reviews(ps.filter { it.bool("approved") }.mapNotNull(::who), ps.filter { it.str("state") == "changes_requested" }.mapNotNull(::who))
+        }
+
         internal fun user(m: Map<String, Any?>?): User? = m?.let {
             val nickname = it.str("nickname") ?: it.str("account_id") ?: ""
             User(0, nickname, it.str("display_name") ?: nickname, it.str("uuid"))

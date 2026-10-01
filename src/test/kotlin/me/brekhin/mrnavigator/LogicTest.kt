@@ -2,10 +2,12 @@ package me.brekhin.mrnavigator
 
 import me.brekhin.mrnavigator.api.ApiException
 import me.brekhin.mrnavigator.api.DiffRefs
+import me.brekhin.mrnavigator.api.Draft
 import me.brekhin.mrnavigator.api.FileChange
 import me.brekhin.mrnavigator.api.GitHubClient
 import me.brekhin.mrnavigator.api.Http
 import me.brekhin.mrnavigator.api.ProjectRef
+import me.brekhin.mrnavigator.api.Reviews
 import me.brekhin.mrnavigator.api.basicOrBearer
 import me.brekhin.mrnavigator.api.LinePoint
 import me.brekhin.mrnavigator.api.MergeRequest
@@ -13,6 +15,7 @@ import me.brekhin.mrnavigator.api.Note
 import me.brekhin.mrnavigator.api.NoteSuggestion
 import me.brekhin.mrnavigator.api.Position
 import me.brekhin.mrnavigator.core.DiffLineMap
+import me.brekhin.mrnavigator.core.Drafts
 import me.brekhin.mrnavigator.core.HiddenFiles
 import me.brekhin.mrnavigator.core.MrSession
 import me.brekhin.mrnavigator.git.GitCli
@@ -149,12 +152,26 @@ class LogicTest {
         MrBundle.locale = java.util.Locale.ENGLISH
         val mr = GitHubClient.parsePull(Json.parse("""{"number":5,"base":{"sha":"b"},"head":{"sha":"h"}}""").obj())
         val s = MrSession(ProjectRef("https://github.com", "o/r"), Connection(HostingType.GITHUB, "https://github.com"),
-            GitCli(java.io.File(".")), "origin", mr, emptyList(), emptyList(), emptyList<String>())
+            GitCli(java.io.File(".")), "origin", mr, emptyList(), emptyList(), Reviews.NONE)
         val e = kotlin.runCatching { s.refs }.exceptionOrNull()
         assertTrue(e is ApiException && "merge base" in e.message!!, e.toString())
         s.localBase = "mb"
         assertEquals(DiffRefs("mb", "b", "h"), s.refs)
         assertEquals("mb", s.base)
+    }
+
+    @Test
+    fun draftsRoundTrip() {
+        val m = DiffLineMap("@@ -2,3 +2,4 @@\n two\n-three\n+THREE\n+three-and-half\n four")
+        val drafts = listOf(
+            Draft("1", "fix \"this\"\nplease", m.position("b", "s", "h", "f.go", "f.go", 3, onNewSide = true)),
+            Draft("2", "range", m.position("b", "s", "h", "f.go", "f.go", end = DiffLineMap.Line(4, true), start = DiffLineMap.Line(3, false))),
+        )
+        assertEquals(drafts, Drafts.decode(Drafts.encode(drafts)))
+        assertEquals(emptyList(), Drafts.decode("not json"))
+        assertEquals(emptyList(), Drafts.decode(null))
+        // Entries without an id or a position are dropped, the rest survive.
+        assertEquals(listOf("ok"), Drafts.decode("""[{"id":"x"},{"body":"no id","position":{}},{"id":"ok","position":{"new_line":1,"new_path":"a"}}]""").map { it.id })
     }
 
     @Test

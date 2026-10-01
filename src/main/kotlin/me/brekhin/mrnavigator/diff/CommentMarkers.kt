@@ -22,6 +22,7 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.awt.RelativePoint
 import me.brekhin.mrnavigator.api.Discussion
+import me.brekhin.mrnavigator.api.Draft
 import me.brekhin.mrnavigator.api.Position
 import me.brekhin.mrnavigator.core.DiffLineMap
 import me.brekhin.mrnavigator.core.MrReviewService
@@ -149,6 +150,14 @@ class CommentMarkers(
             h.gutterIconRenderer = ThreadsIcon(line, threads)
             threadHighlighters += h
         }
+        // Drafts of the review on this file, on their first line like threads.
+        for (draft in service.drafts(s)) {
+            if (!s.onFile(draft.position, ctx.change)) continue
+            val lines = threadLines(draft.position, mapping)?.takeIf { it.last < lineCount } ?: continue
+            val h = editor.markupModel.addLineHighlighter(lines.first, HighlighterLayer.LAST, null)
+            h.gutterIconRenderer = DraftIcon(lines.last, draft)
+            threadHighlighters += h
+        }
     }
 
     /** Opens the "new comment" popup for the selected lines or the caret line (context-menu action). */
@@ -273,6 +282,21 @@ class CommentMarkers(
 
         override fun equals(other: Any?) = other is ThreadsIcon && other.line == line && other.threads == threads
         override fun hashCode() = line * 31 + threads.hashCode()
+    }
+
+    /** A draft of the review; [line] — its last line, the popup opens under it. */
+    private inner class DraftIcon(private val line: Int, private val draft: Draft) : GutterIconRenderer() {
+        override fun getIcon(): Icon = AllIcons.Actions.Edit
+        override fun getTooltipText() = msg("diff.draft", StringUtil.escapeXmlEntities(draft.body.lineSequence().first().take(120)))
+        override fun isNavigateAction() = true
+        override fun getAlignment() = Alignment.LEFT
+
+        override fun getClickAction(): AnAction = object : DumbAwareAction() {
+            override fun actionPerformed(e: AnActionEvent) = ThreadPopup.showDraft(project, session, draft, pointUnder(line))
+        }
+
+        override fun equals(other: Any?) = other is DraftIcon && other.line == line && other.draft == draft
+        override fun hashCode() = line * 31 + draft.hashCode()
     }
 
     private inner class AddIcon(private val line: Int) : GutterIconRenderer() {

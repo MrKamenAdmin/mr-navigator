@@ -104,10 +104,40 @@ class BitbucketServerClient(serverUrl: String, token: String, username: String?)
         send("PUT", "${pr(project, mr)}/participants/${enc(currentUser().username)}", mapOf("status" to status))
     }
 
-    override fun approvedBy(project: ProjectRef, mr: MergeRequest): List<String> =
-        get(pr(project, mr)).a("reviewers").map { it.obj() }.filter { it.bool("approved") }.mapNotNull { it.o("user")?.str("slug") }
+    override fun reviews(project: ProjectRef, mr: MergeRequest): Reviews = reviewers(get(pr(project, mr)).a("reviewers").map { it.obj() })
+
+    /** Pending comments published by one "review" call with the status: one notification. */
+    override fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String) {
+        val path = pr(project, mr)
+        drafts.forEach { send("POST", "$path/comments", commentPayload(it.body, it.position, mr.diffRefs) + ("state" to "PENDING")) }
+        if (drafts.isEmpty() && summary.isBlank()) {
+            when (verdict) {
+                Verdict.APPROVE -> setStatus(project, mr, "APPROVED")
+                Verdict.REQUEST_CHANGES -> setStatus(project, mr, "NEEDS_WORK")
+                Verdict.COMMENT -> Unit
+            }
+            return
+        }
+        send("PUT", "$path/review?version=${get(path).int("version") ?: 0}", reviewPayload(verdict, summary))
+    }
+
+    override fun withdrawChanges(project: ProjectRef, mr: MergeRequest) = setStatus(project, mr, "UNAPPROVED")
 
     companion object {
+        internal fun reviewers(rs: List<Map<String, Any?>>): Reviews {
+            fun who(r: Map<String, Any?>) = r.o("user")?.str("slug")
+            return Reviews(rs.filter { it.bool("approved") }.mapNotNull(::who), rs.filter { it.str("status") == "NEEDS_WORK" }.mapNotNull(::who))
+        }
+
+        internal fun reviewPayload(verdict: Verdict, summary: String): Map<String, Any?> = linkedMapOf<String, Any?>().apply {
+            if (summary.isNotBlank()) put("commentText", summary)
+            when (verdict) {
+                Verdict.APPROVE -> put("participantStatus", "APPROVED")
+                Verdict.REQUEST_CHANGES -> put("participantStatus", "NEEDS_WORK")
+                Verdict.COMMENT -> Unit
+            }
+        }
+
         internal fun user(m: Map<String, Any?>?): User? = m?.let {
             val slug = it.str("slug") ?: it.str("name") ?: ""
             User(it.long("id") ?: 0, slug, it.str("displayName") ?: slug)

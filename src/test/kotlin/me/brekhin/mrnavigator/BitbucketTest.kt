@@ -8,6 +8,8 @@ import me.brekhin.mrnavigator.api.DiffRefs
 import me.brekhin.mrnavigator.api.HostingType
 import me.brekhin.mrnavigator.api.LinePoint
 import me.brekhin.mrnavigator.api.MrFilter
+import me.brekhin.mrnavigator.api.Reviews
+import me.brekhin.mrnavigator.api.Verdict
 import me.brekhin.mrnavigator.core.DiffLineMap
 import me.brekhin.mrnavigator.git.RemoteUrl
 import me.brekhin.mrnavigator.util.Json
@@ -188,5 +190,17 @@ class BitbucketTest {
             dc.copy(url = "https://bb.corp/bitbucket")))
         assertEquals(HostingType.BITBUCKET_SERVER, HostingType.guess("bitbucket.corp.com"))
         assertEquals(HostingType.BITBUCKET_CLOUD, HostingType.guess("bitbucket.org"))
+    }
+
+    @Test
+    fun reviewStates() {
+        val cloud = listOf("""{"user":{"nickname":"a"},"approved":true,"state":"approved"}""", """{"user":{"nickname":"b"},"approved":false,"state":"changes_requested"}""",
+            """{"user":{"nickname":"c"},"approved":false,"state":null}""").map { obj(it) }
+        assertEquals(Reviews(listOf("a"), listOf("b")), BitbucketCloudClient.participants(cloud))
+        val server = listOf("""{"user":{"slug":"a"},"approved":true,"status":"APPROVED"}""", """{"user":{"slug":"b"},"approved":false,"status":"NEEDS_WORK"}""").map { obj(it) }
+        assertEquals(Reviews(listOf("a"), listOf("b")), BitbucketServerClient.reviewers(server))
+        assertEquals(mapOf("commentText" to "ok", "participantStatus" to "APPROVED"), BitbucketServerClient.reviewPayload(Verdict.APPROVE, "ok"))
+        assertEquals(mapOf("participantStatus" to "NEEDS_WORK"), BitbucketServerClient.reviewPayload(Verdict.REQUEST_CHANGES, ""))
+        assertEquals(emptyMap(), BitbucketServerClient.reviewPayload(Verdict.COMMENT, " "))
     }
 }

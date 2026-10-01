@@ -275,3 +275,16 @@ data class Discussion(val id: String, val notes: List<Note>, val webUrl: String?
 data class ProjectRef(val serverUrl: String, val path: String) {
     val encodedPath: String get() = java.net.URLEncoder.encode(path, Charsets.UTF_8).replace("+", "%20")
 }
+
+/** The reviewer's decision sent with a review; the names are GitHub's review events. */
+enum class Verdict { COMMENT, APPROVE, REQUEST_CHANGES }
+
+/** Usernames by their current verdict on the request. */
+data class Reviews(val approved: List<String>, val changesRequested: List<String>) {
+    companion object {
+        val NONE = Reviews(emptyList(), emptyList())
+    }
+}
+
+/** A line comment kept in the IDE until the review is submitted. */
+data class Draft(val id: String, val body: String, val position: Position)

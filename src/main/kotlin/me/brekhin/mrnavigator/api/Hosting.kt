@@ -80,8 +80,11 @@ interface HostingClient {
     fun deleteNote(project: ProjectRef, mr: MergeRequest, d: Discussion, note: Note)
     fun approve(project: ProjectRef, mr: MergeRequest)
     fun unapprove(project: ProjectRef, mr: MergeRequest)
-    /** Usernames of those who approved. */
-    fun approvedBy(project: ProjectRef, mr: MergeRequest): List<String>
+    /** Who approved and who requested changes. */
+    fun reviews(project: ProjectRef, mr: MergeRequest): Reviews
+    /** Publishes [drafts] and [summary] with [verdict] — with one notification where the server can. */
+    fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String)
+    fun withdrawChanges(project: ProjectRef, mr: MergeRequest)
     /** GitLab only — the others have no API for it, and their notes carry no suggestions. */
     fun applySuggestions(ids: List<Long>): Unit = throw UnsupportedOperationException()
 }

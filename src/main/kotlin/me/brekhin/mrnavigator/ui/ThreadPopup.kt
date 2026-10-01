@@ -22,6 +22,7 @@ import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import me.brekhin.mrnavigator.api.Discussion
+import me.brekhin.mrnavigator.api.Draft
 import me.brekhin.mrnavigator.api.HostingType
 import me.brekhin.mrnavigator.api.Note
 import me.brekhin.mrnavigator.api.Position
@@ -57,6 +58,13 @@ object ThreadPopup {
 
     private val WIDTH get() = JBUI.scale(540)
 
+    /** Text typed into a popup closed without sending — offered again when the same popup opens. */
+    private val unsent = HashMap<String, String>()
+
+    private fun keepUnsent(key: String, input: JBTextArea, sent: Boolean) {
+        if (!sent && input.text.isNotBlank()) unsent[key] = input.text else unsent.remove(key)
+    }
+
     /** What the author can do with their own notes. */
     private class Own(val edit: (Note, String) -> Unit, val delete: (Note) -> Unit)
     private val RESOLVED_BG = JBColor(0xE8F5E9, 0x2B3A2E)
@@ -71,8 +79,10 @@ object ThreadPopup {
     ) {
         val service = MrReviewService.getInstance(project)
         lateinit var popup: JBPopup
+        val key = "t:${discussion.id}"
+        var sent = false
 
-        val input = inputArea(msg("popup.replyPlaceholder"))
+        val input = inputArea(msg("popup.replyPlaceholder")).apply { text = unsent[key].orEmpty() }
         val reply = primary(msg("popup.reply"))
         val resolve = JButton(msg(if (discussion.resolved) "popup.reopen" else "popup.resolve")).apply {
             isVisible = discussion.resolvable
@@ -92,7 +102,10 @@ object ThreadPopup {
             if (text.isNotEmpty()) {
                 busy(true)
                 Bg.run(project, msg("popup.replyTask"), work = { service.reply(session, discussion, text) },
-                    onError = { busy(false); Notify.error(project, msg("popup.replyFailed"), it) }) { popup.cancel() }
+                    onError = { busy(false); Notify.error(project, msg("popup.replyFailed"), it) }) {
+                    sent = true
+                    popup.cancel()
+                }
             }
         }
         reply.addActionListener { sendReply() }
@@ -136,7 +149,10 @@ object ThreadPopup {
                 left = listOf(reply, suggestionButton(input, suggestionLines, session.type)),
                 right = listOf(resolve, openWeb)), BorderLayout.SOUTH)
         }
-        popup = build(panel, input, title(discussion), onClosed)
+        popup = build(panel, input, title(discussion)) {
+            keepUnsent(key, input, sent)
+            onClosed()
+        }
         popup.show(at)
     }
 
@@ -151,7 +167,10 @@ object ThreadPopup {
     ) {
         val service = MrReviewService.getInstance(project)
         lateinit var popup: JBPopup
+        val key = position?.let { "n:${session.ref}:${it.newPath ?: it.oldPath}:${it.lineLabel()}" } ?: "g:${session.ref}"
+        var sent = false
         val input = inputArea(if (position == null) msg("popup.commentPlaceholder.general", session.type.term) else msg("popup.commentPlaceholder"))
+            .apply { text = unsent[key].orEmpty() }
         val send = primary(msg("popup.comment"))
         val submit = {
             val text = input.text.trim()
@@ -161,11 +180,26 @@ object ThreadPopup {
                     onError = {
                         send.isEnabled = true; input.isEnabled = true
                         Notify.error(project, msg("popup.commentFailed"), it)
-                    }) { popup.cancel() }
+                    }) {
+                    sent = true
+                    popup.cancel()
+                }
             }
         }
         send.addActionListener { submit() }
         submitOnCtrlEnter(input, submit)
+        val addToReview = JButton(msg("popup.addToReview")).apply {
+            isVisible = position != null
+            toolTipText = msg("popup.addToReview.tooltip")
+            addActionListener {
+                val text = input.text.trim()
+                if (text.isNotEmpty() && position != null) {
+                    service.saveDraft(session, Draft(java.util.UUID.randomUUID().toString(), text, position))
+                    sent = true
+                    popup.cancel()
+                }
+            }
+        }
 
         val where = position?.let { p ->
             val file = (p.newPath ?: p.oldPath)?.substringAfterLast('/')
@@ -174,9 +208,41 @@ object ThreadPopup {
 
         val panel = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(8, 10, 10, 10)
-            add(editor(input, left = listOf(send, suggestionButton(input, suggestionLines, session.type)), right = emptyList()), BorderLayout.CENTER)
+            add(editor(input, left = listOf(send, addToReview, suggestionButton(input, suggestionLines, session.type)), right = emptyList()), BorderLayout.CENTER)
         }
-        popup = build(panel, input, where, onClosed)
+        popup = build(panel, input, where) {
+            keepUnsent(key, input, sent)
+            onClosed()
+        }
+        popup.show(at)
+    }
+
+    /** A draft of the review: change its text or delete it. */
+    fun showDraft(project: Project, session: MrSession, draft: Draft, at: RelativePoint, onClosed: () -> Unit = {}) {
+        val service = MrReviewService.getInstance(project)
+        lateinit var popup: JBPopup
+        val input = inputArea(msg("popup.commentPlaceholder")).apply { text = draft.body }
+        val save = primary(msg("popup.save"))
+        val delete = JButton(msg("popup.delete"))
+        val submit = {
+            input.text.trim().takeIf { it.isNotEmpty() }?.let {
+                service.saveDraft(session, draft.copy(body = it))
+                popup.cancel()
+            }
+            Unit
+        }
+        save.addActionListener { submit() }
+        submitOnCtrlEnter(input, submit)
+        delete.addActionListener {
+            service.removeDraft(session, draft.id)
+            popup.cancel()
+        }
+        val p = draft.position
+        val panel = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(8, 10, 10, 10)
+            add(editor(input, left = listOf(save), right = listOf(delete)), BorderLayout.CENTER)
+        }
+        popup = build(panel, input, msg("popup.draftTitle", (p.newPath ?: p.oldPath)?.substringAfterLast('/'), p.lineLabel()), onClosed)
         popup.show(at)
     }
 

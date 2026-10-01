@@ -5,6 +5,7 @@ import javax.swing.ListCellRenderer
 import java.awt.event.KeyEvent
 import java.awt.event.KeyAdapter
 import java.awt.Component
+import me.brekhin.mrnavigator.api.Verdict
 import me.brekhin.mrnavigator.util.TimeAgo
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.JBColor
@@ -62,6 +63,8 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
     private val checkoutButton = JButton(msg("details.checkout"), AllIcons.Actions.CheckOut)
     private val backButton = JButton(msg("details.back"), AllIcons.Actions.Back)
     private val approveButton = JButton("Approve")
+    private val requestChangesButton = JButton()
+    private val reviewButton = JButton(AllIcons.Actions.Edit)
     private val browserButton = JButton(AllIcons.General.Web).apply { toolTipText = msg("openInBrowser") }
     private val refreshButton = JButton(AllIcons.Actions.Refresh)
 
@@ -102,7 +105,8 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
             add(title); add(meta); add(checkoutState)
             // WrapLayout moves buttons to the next row when the tool window is narrow (FlowLayout would clip them).
             add(JPanel(WrapLayout(FlowLayout.LEFT, JBUI.scale(4), JBUI.scale(4))).apply {
-                add(checkoutButton); add(backButton); add(approveButton); add(browserButton); add(refreshButton)
+                add(checkoutButton); add(backButton); add(approveButton); add(requestChangesButton); add(reviewButton)
+                add(browserButton); add(refreshButton)
                 alignmentX = LEFT_ALIGNMENT
             })
             listOf(title, meta, checkoutState).forEach { it.alignmentX = LEFT_ALIGNMENT }
@@ -149,6 +153,11 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         checkoutButton.addActionListener { checkout() }
         backButton.addActionListener { goBack() }
         approveButton.addActionListener { toggleApprove() }
+        requestChangesButton.addActionListener {
+            val s = session ?: return@addActionListener
+            if (hasRequestedChanges(s)) withdrawChanges(s) else submitReview(s, Verdict.REQUEST_CHANGES)
+        }
+        reviewButton.addActionListener { session?.let { submitReview(it, Verdict.COMMENT) } }
         browserButton.addActionListener { session?.let { BrowserUtil.browse(it.mr.webUrl) } }
         refreshButton.addActionListener { session?.let { load(it.mr, it.type) } }
         newCommentButton.addActionListener {
@@ -206,13 +215,18 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         title.text = "<html>${if (mr.draft) "<span style='color:gray'>Draft:</span> " else ""}${s.ref} ${Markdown.escape(mr.title)}</html>"
         meta.text = "${mr.author?.name ?: "?"} · ${mr.sourceBranch} → ${mr.targetBranch} · ${mr.state}" +
             (if (mr.hasConflicts) " · " + msg("details.conflicts") else "") +
-            (if (s.approvedBy.isNotEmpty()) " · " + msg("details.approvedBy", s.approvedBy.joinToString()) else "")
+            (if (s.reviews.approved.isNotEmpty()) " · " + msg("details.approvedBy", s.reviews.approved.joinToString()) else "") +
+            (if (s.reviews.changesRequested.isNotEmpty()) " · " + msg("details.changesRequested", s.reviews.changesRequested.joinToString()) else "")
         refreshButton.toolTipText = msg("details.refresh", s.type.term)
         checkoutState.text = stateText(s, state)
         checkoutState.foreground = if (checkedOut) UIUtil.getLabelForeground() else UIUtil.getErrorForeground()
         checkoutButton.isEnabled = !checkedOut
         backButton.isVisible = service.returnPointFor(s) != null
         approveButton.text = msg(if (isApprovedByMe(s)) "details.revokeApprove" else "details.approve")
+        requestChangesButton.text = msg(if (hasRequestedChanges(s)) "details.withdrawChanges" else "details.requestChanges")
+        val drafts = service.drafts(s).size
+        reviewButton.isVisible = drafts > 0
+        reviewButton.text = msg("details.review", drafts)
         updateFilesSummary()
         tree.repaint()
         renderThreads()
@@ -237,7 +251,12 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
 
     private fun isApprovedByMe(s: MrSession): Boolean {
         val me = service.currentUserCached(s.connection) ?: return false
-        return me.username in s.approvedBy
+        return me.username in s.reviews.approved
+    }
+
+    private fun hasRequestedChanges(s: MrSession): Boolean {
+        val me = service.currentUserCached(s.connection) ?: return false
+        return me.username in s.reviews.changesRequested
     }
 
     private fun renderFiles() {
@@ -356,8 +375,21 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         Bg.run(project, if (approve) msg("details.approve") else msg("details.revokeTask"), work = {
             val c = service.client(s.connection)
             if (approve) c.approve(s.project, s.mr) else c.unapprove(s.project, s.mr)
-            service.refreshApprovals(s)
+            service.refreshReviews(s)
         }) { }
+    }
+
+    private fun submitReview(s: MrSession, verdict: Verdict) {
+        val dialog = ReviewDialog(project, s, service.drafts(s), verdict)
+        if (!dialog.showAndGet()) return
+        val chosen = dialog.verdict
+        val summary = dialog.summary
+        Bg.run(project, msg("review.task"), work = { service.submitReview(s, chosen, summary) },
+            onError = { Notify.error(project, msg("review.failed"), it) }) { Notify.info(project, msg("review.sent", s.ref)) }
+    }
+
+    private fun withdrawChanges(s: MrSession) {
+        Bg.run(project, msg("details.withdrawTask"), work = { service.withdrawChanges(s) }) { }
     }
 
     /** Two lines: who / when / where on top, the start of the comment below. */

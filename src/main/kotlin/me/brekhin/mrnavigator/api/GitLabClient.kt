@@ -1,7 +1,9 @@
 package me.brekhin.mrnavigator.api
 
+import me.brekhin.mrnavigator.util.a
 import me.brekhin.mrnavigator.util.arr
 import me.brekhin.mrnavigator.util.msg
+import me.brekhin.mrnavigator.util.o
 import me.brekhin.mrnavigator.util.obj
 import me.brekhin.mrnavigator.util.str
 import java.net.HttpURLConnection
@@ -11,6 +13,8 @@ import java.net.URLEncoder
 class GitLabClient(serverUrl: String, token: String) : HostingClient {
     private val api = serverUrl.trimEnd('/') + "/api/v4"
     private val http = Http("GitLab") { it.setRequestProperty("PRIVATE-TOKEN", token) }
+    private val graphqlUrl = serverUrl.trimEnd('/') + "/api/graphql"
+    private val gql = Http("GitLab") { it.setRequestProperty("Authorization", "Bearer $token") }
 
     private fun json(method: String, path: String, body: Any? = null): Any? = http.call(method, api + path, body).json()
 
@@ -98,11 +102,51 @@ class GitLabClient(serverUrl: String, token: String) : HostingClient {
         json("POST", "${mrPath(project, mr)}/unapprove", emptyMap<String, Any?>())
     }
 
+    override fun reviews(project: ProjectRef, mr: MergeRequest): Reviews = Reviews(approvedBy(project, mr), requestedChanges(project, mr))
+
     /** Empty if approvals are not available on this instance. */
-    override fun approvedBy(project: ProjectRef, mr: MergeRequest): List<String> = try {
+    private fun approvedBy(project: ProjectRef, mr: MergeRequest): List<String> = try {
         json("GET", "${mrPath(project, mr)}/approvals").obj()["approved_by"].arr()
             .mapNotNull { it.obj()["user"].obj().str("username") }
     } catch (e: ApiException) {
         emptyList()
+    }
+
+    private fun requestedChanges(project: ProjectRef, mr: MergeRequest): List<String> = try {
+        withChangesRequested(paged("${mrPath(project, mr)}/reviewers"))
+    } catch (e: ApiException) {
+        emptyList()
+    }
+
+    /** Draft notes published at once — one notification, like "Submit review" on the web. */
+    override fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String) {
+        val path = "${mrPath(project, mr)}/draft_notes"
+        drafts.forEach { json("POST", path, draftNote(it)) }
+        if (summary.isNotBlank()) json("POST", path, mapOf("note" to summary))
+        if (drafts.isNotEmpty() || summary.isNotBlank()) json("POST", "$path/bulk_publish", emptyMap<String, Any?>())
+        when (verdict) {
+            Verdict.APPROVE -> approve(project, mr)
+            Verdict.REQUEST_CHANGES -> mutate("mergeRequestRequestChanges", project, mr)
+            Verdict.COMMENT -> Unit
+        }
+    }
+
+    override fun withdrawChanges(project: ProjectRef, mr: MergeRequest) = mutate("mergeRequestDestroyRequestedChanges", project, mr)
+
+    /** Request changes is in REST only since GitLab 19.2, in GraphQL long before. */
+    private fun mutate(name: String, project: ProjectRef, mr: MergeRequest) {
+        val query = "mutation(\$p: ID!, \$iid: String!) { $name(input: {projectPath: \$p, iid: \$iid}) { errors } }"
+        val variables = mapOf("p" to project.path, "iid" to mr.iid.toString())
+        val r = gql.call("POST", graphqlUrl, mapOf("query" to query, "variables" to variables)).json().obj()
+        val errors = r.a("errors").mapNotNull { it.obj().str("message") } +
+            r.o("data")?.o(name)?.a("errors").orEmpty().mapNotNull { it as? String }
+        if (errors.isNotEmpty()) throw ApiException("GitLab: " + errors.joinToString("; "))
+    }
+
+    companion object {
+        internal fun draftNote(d: Draft): Map<String, Any?> = mapOf("note" to d.body, "position" to d.position.toJson())
+
+        internal fun withChangesRequested(reviewers: List<Map<String, Any?>>): List<String> =
+            reviewers.filter { it.str("state") == "requested_changes" }.mapNotNull { it.o("user")?.str("username") }
     }
 }
