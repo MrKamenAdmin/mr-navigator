@@ -167,6 +167,7 @@ class LogicTest {
 
     @Test
     fun timeAgoAndStats() {
+        me.brekhin.mrnavigator.util.MrBundle.locale = java.util.Locale.forLanguageTag("ru")
         val now = java.time.Instant.parse("2026-10-01T12:00:00Z")
         val utc = java.time.ZoneId.of("UTC")
         assertEquals("только что", TimeAgo.format("2026-10-01T11:59:30Z", now, utc))

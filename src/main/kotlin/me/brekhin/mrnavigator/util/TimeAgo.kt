@@ -5,12 +5,9 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
-/** "5 минут назад", "вчера", "12 сен 2026" — for GitLab ISO timestamps. */
+/** "5 minutes ago", "yesterday", "12 Sep 2026" — for ISO timestamps of the APIs. */
 object TimeAgo {
-    private val DATE = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag("ru"))
-
     fun format(iso: String?, now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault()): String {
         if (iso.isNullOrBlank()) return ""
         val time = try {
@@ -23,22 +20,12 @@ object TimeAgo {
         val hours = d.toHours()
         val days = d.toDays()
         return when {
-            d.isNegative || d.seconds < 60 -> "только что"
-            minutes < 60 -> "$minutes ${plural(minutes, "минуту", "минуты", "минут")} назад"
-            hours < 24 -> "$hours ${plural(hours, "час", "часа", "часов")} назад"
-            days == 1L -> "вчера"
-            days < 30 -> "$days ${plural(days, "день", "дня", "дней")} назад"
-            else -> DATE.format(time.atZone(zone))
-        }
-    }
-
-    fun plural(n: Long, one: String, few: String, many: String): String {
-        val m10 = n % 10
-        val m100 = n % 100
-        return when {
-            m10 == 1L && m100 != 11L -> one
-            m10 in 2..4 && m100 !in 12..14 -> few
-            else -> many
+            d.isNegative || d.seconds < 60 -> msg("time.justNow")
+            minutes < 60 -> msg("time.ago", minutes, MrBundle.plural(minutes, "time.minute"))
+            hours < 24 -> msg("time.ago", hours, MrBundle.plural(hours, "time.hour"))
+            days == 1L -> msg("time.yesterday")
+            days < 30 -> msg("time.ago", days, MrBundle.plural(days, "time.day"))
+            else -> DateTimeFormatter.ofPattern("d MMM yyyy", MrBundle.locale).format(time.atZone(zone))
         }
     }
 }

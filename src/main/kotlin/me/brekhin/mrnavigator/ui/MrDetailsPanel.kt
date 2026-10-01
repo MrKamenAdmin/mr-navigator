@@ -34,6 +34,7 @@ import me.brekhin.mrnavigator.core.MrSession
 import me.brekhin.mrnavigator.diff.MrDiffOpener
 import me.brekhin.mrnavigator.settings.MrReviewSettings
 import me.brekhin.mrnavigator.util.Markdown
+import me.brekhin.mrnavigator.util.MrBundle
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import java.awt.Point
@@ -259,7 +260,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         val removed = visible.sumOf { it.stats.second }
         val viewed = visible.count { it.displayPath in s.viewed }
         val n = visible.size.toLong()
-        filesSummary.text = "<html>$n ${TimeAgo.plural(n, "файл", "файла", "файлов")} · " +
+        filesSummary.text = "<html>$n ${MrBundle.plural(n, "files")} · " +
             "<font color='${ColorUtil.toHtmlColor(PLUS)}'>+$added</font> <font color='${ColorUtil.toHtmlColor(MINUS)}'>−$removed</font>" +
             " · просмотрено $viewed из $n" +
             (if (hiddenCount > 0) " · скрыто $hiddenCount сгенерированных" else "") + "</html>"
@@ -404,7 +405,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
             val preview = first?.body?.lineSequence()?.map { it.trim() }?.firstOrNull { it.isNotEmpty() && !it.startsWith("```") }.orEmpty()
             bottom.append(preview.take(160), SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, fg))
             val replies = value.notes.count { !it.system } - 1
-            if (replies > 0) bottom.append("   ${replies} ${TimeAgo.plural(replies.toLong(), "ответ", "ответа", "ответов")}", grey)
+            if (replies > 0) bottom.append("   ${replies} ${MrBundle.plural(replies.toLong(), "replies")}", grey)
             return panel
         }
     }

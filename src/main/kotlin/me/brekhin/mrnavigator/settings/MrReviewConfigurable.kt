@@ -7,16 +7,20 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.ThrowableComputable
+import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.COLUMNS_LARGE
+import com.intellij.ui.dsl.builder.bindItem
 import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.builder.columns
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.builder.rows
+import com.intellij.ui.dsl.builder.toNullableProperty
 import me.brekhin.mrnavigator.api.GitLabClient
+import me.brekhin.mrnavigator.util.msg
 
 /** Settings → Tools → MR Navigator */
 class MrReviewConfigurable : BoundConfigurable("MR Navigator") {
@@ -73,6 +77,11 @@ class MrReviewConfigurable : BoundConfigurable("MR Navigator") {
                 row {
                     checkBox("При checkout MR прятать незакоммиченные изменения в stash").bindSelected(settings::autoStash)
                 }
+            }
+            row(msg("settings.language")) {
+                comboBox(listOf("auto", "en", "ru"), SimpleListCellRenderer.create("") { msg("settings.language.$it") })
+                    .bindItem(settings::language.toNullableProperty())
+                    .comment(msg("settings.language.comment"))
             }
         }
     }

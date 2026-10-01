@@ -23,6 +23,8 @@ class MrReviewSettings : PersistentStateComponent<MrReviewSettings.State> {
         var hideEnabled: Boolean = false
         var hiddenSuffixes: String = ""
         var autoStash: Boolean = true
+        /** "auto" (the OS language), "en" or "ru". */
+        var language: String = "auto"
     }
 
     private var state = State()
@@ -51,6 +53,10 @@ class MrReviewSettings : PersistentStateComponent<MrReviewSettings.State> {
     var autoStash: Boolean
         get() = state.autoStash
         set(value) { state.autoStash = value }
+
+    var language: String
+        get() = state.language
+        set(value) { state.language = value }
 
     fun hiddenFiles(): HiddenFiles = HiddenFiles(hiddenSuffixes, hideEnabled)
 
