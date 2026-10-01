@@ -308,10 +308,13 @@ class LogicTest {
 
     @Test
     fun markdown() {
-        assertEquals("a <code>&lt;b&gt;</code> <b>c</b>", Markdown.toHtml("a `<b>` **c**"))
-        assertEquals("<ul><li>x</li><li>y</li></ul>", Markdown.toHtml("- x\n- y"))
-        assertEquals("<div><i>Suggestion:</i></div><pre><code>foo()</code></pre>", Markdown.toHtml("```suggestion:-0+0\nfoo()\n```"))
-        assertEquals("<div><i>Suggestion:</i></div><pre><code>// ```\nx</code></pre>", Markdown.toHtml("````suggestion:-1+0\n// ```\nx\n````"))
+        fun html(md: String) = Markdown.gfmToHtml(md, "https://x")
+        val text = html("a `<b>` **c**")
+        assertTrue("<code>&lt;b&gt;</code>" in text, text); assertTrue("<strong>c</strong>" in text, text)
+        assertTrue("<div><i>Suggestion:</i></div><pre><code>foo()" in html("```suggestion:-0+0\nfoo()\n```"))
+        // GitLab uses a longer fence when the code itself has ```
+        assertTrue("<div><i>Suggestion:</i></div><pre><code>// ```\nx" in html("````suggestion:-1+0\n// ```\nx\n````"))
+        assertTrue("<div><i>Suggestion:</i></div><pre><code>y" in html("```suggestion\ny\n```")) // GitHub
     }
 
     @Test

@@ -16,6 +16,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.panels.VerticalLayout
+import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import me.brekhin.mrnavigator.api.Discussion
@@ -109,7 +110,7 @@ object ThreadPopup {
         val panel = JPanel(BorderLayout(0, JBUI.scale(8))).apply {
             border = JBUI.Borders.empty(8, 10, 10, 10)
             if (discussion.resolved) add(resolvedBanner(discussion), BorderLayout.NORTH)
-            add(notesView(discussion, session.type, applySuggestions), BorderLayout.CENTER)
+            add(notesView(discussion, session, applySuggestions), BorderLayout.CENTER)
             add(editor(input,
                 left = listOf(reply, suggestionButton(input, suggestionLines, session.type)),
                 right = listOf(resolve, openWeb)), BorderLayout.SOUTH)
@@ -175,9 +176,9 @@ object ThreadPopup {
     }
 
     /** Notes one under another, separated by thin lines; scrolls when the thread is long. */
-    private fun notesView(d: Discussion, type: HostingType, onApply: (List<Long>, JButton) -> Unit): JComponent {
+    private fun notesView(d: Discussion, s: MrSession, onApply: (List<Long>, JButton) -> Unit): JComponent {
         val notes = WidthTrackingPanel()
-        d.notes.filter { !it.system }.forEachIndexed { i, n -> notes.add(noteView(n, separator = i > 0, type, onApply)) }
+        d.notes.filter { !it.system }.forEachIndexed { i, n -> notes.add(noteView(n, separator = i > 0, s, onApply)) }
 
         // Height of the content at the popup width, capped — longer threads scroll.
         // Lay out twice: the first pass gives the HTML panes their width, the second their wrapped height.
@@ -196,7 +197,7 @@ object ThreadPopup {
         for (child in c.components) if (child is Container) layoutAll(child)
     }
 
-    private fun noteView(n: Note, separator: Boolean, type: HostingType, onApply: (List<Long>, JButton) -> Unit): JComponent = JPanel(BorderLayout(0, JBUI.scale(2))).apply {
+    private fun noteView(n: Note, separator: Boolean, s: MrSession, onApply: (List<Long>, JButton) -> Unit): JComponent = JPanel(BorderLayout(0, JBUI.scale(2))).apply {
         isOpaque = false
         border = if (separator) {
             JBUI.Borders.compound(JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0), JBUI.Borders.emptyTop(8))
@@ -210,8 +211,8 @@ object ThreadPopup {
             add(JBLabel("  " + meta.joinToString(" · ")).apply { foreground = UIUtil.getContextHelpForeground() })
         }
         add(header, BorderLayout.NORTH)
-        add(htmlBody(n.body), BorderLayout.CENTER)
-        suggestionState(n, type, onApply)?.let { add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false; add(it) }, BorderLayout.SOUTH) }
+        add(htmlBody(n.body, s.mr.projectWebUrl), BorderLayout.CENTER)
+        suggestionState(n, s.type, onApply)?.let { add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false; add(it) }, BorderLayout.SOUTH) }
     }
 
     /** Like GitLab's "Apply suggestion": a button for the note's suggestions, or a mark that they are applied. */
@@ -229,13 +230,15 @@ object ThreadPopup {
         }
     }
 
-    private fun htmlBody(markdown: String): JComponent = JEditorPane(UIUtil.HTML_MIME, "<html><body>${Markdown.toHtml(markdown)}</body></html>").apply {
+    private fun htmlBody(markdown: String, baseUrl: String): JComponent = JEditorPane().apply {
+        editorKit = HTMLEditorKitBuilder.simple()
+        text = "<html>${Markdown.gfmToHtml(markdown, baseUrl)}</html>"
         isEditable = false
         isOpaque = false
         border = JBUI.Borders.empty()
         putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
         font = UIUtil.getLabelFont()
-        addHyperlinkListener { if (it.eventType == HyperlinkEvent.EventType.ACTIVATED) BrowserUtil.browse(it.url) }
+        addHyperlinkListener { if (it.eventType == HyperlinkEvent.EventType.ACTIVATED) it.url?.let { url -> BrowserUtil.browse(url) } }
     }
 
     /** Text area with buttons: [left] — main actions, [right] — secondary; a hint about the shortcut. */
