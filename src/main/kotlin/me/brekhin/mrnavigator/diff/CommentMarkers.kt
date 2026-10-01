@@ -22,6 +22,7 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.awt.RelativePoint
 import me.brekhin.mrnavigator.api.Discussion
+import me.brekhin.mrnavigator.api.Position
 import me.brekhin.mrnavigator.core.DiffLineMap
 import me.brekhin.mrnavigator.core.MrReviewService
 import me.brekhin.mrnavigator.core.MrSession
@@ -52,6 +53,27 @@ interface LineMapping {
      * the right, so "+" is offered only on removed lines — those can be commented only from this side.
      */
     val isOldSideEditor: Boolean get() = false
+}
+
+/**
+ * Editor lines a thread covers in the editor of [mapping]: its line, or a range from the first line —
+ * where its icon goes (the position itself points at the last line). Null when the line isn't shown there.
+ */
+internal fun threadLines(p: Position, mapping: LineMapping): IntRange? {
+    val end = when {
+        p.newLine != null -> mapping.toEditor(Side.RIGHT, p.newLine - 1)
+        p.oldLine != null -> mapping.toEditor(Side.LEFT, p.oldLine - 1)
+        else -> null
+    } ?: return null
+    val start = p.lineRange?.start?.let { s ->
+        // Prefer the side the range starts on; the other side is a fallback for side-by-side editors.
+        listOfNotNull(
+            s.newLine?.takeIf { s.type == "new" }?.let { Side.RIGHT to it },
+            s.oldLine?.let { Side.LEFT to it },
+            s.newLine?.let { Side.RIGHT to it },
+        ).firstNotNullOfOrNull { (side, line) -> mapping.toEditor(side, line - 1) }
+    }?.takeIf { it in 0..end }
+    return (start ?: end)..end
 }
 
 /**
@@ -119,15 +141,8 @@ class CommentMarkers(
             // Outdated thread (written for an older version of the MR) — its lines no longer match.
             // It is still listed on the Discussion tab.
             if (s.isOutdated(d)) continue
-            val newLine = p.newLine
-            val oldLine = p.oldLine
-            val (side, line1) = when {
-                newLine != null -> Side.RIGHT to newLine
-                oldLine != null -> Side.LEFT to oldLine
-                else -> continue
-            }
-            val editorLine = mapping.toEditor(side, line1 - 1) ?: continue
-            if (editorLine in 0 until lineCount) byLine.getOrPut(editorLine) { ArrayList() } += d
+            val lines = threadLines(p, mapping)?.takeIf { it.last < lineCount } ?: continue
+            byLine.getOrPut(lines.first) { ArrayList() } += d
         }
         for ((line, threads) in byLine) {
             val h = editor.markupModel.addLineHighlighter(line, HighlighterLayer.LAST, null)
@@ -211,19 +226,6 @@ class CommentMarkers(
         }
     }
 
-    /** First editor line of a multi-line thread ending at [endEditorLine], or null. */
-    private fun rangeStart(d: Discussion, endEditorLine: Int): Int? {
-        val start = d.position?.lineRange?.start ?: return null
-        val candidates = buildList {
-            // Prefer the side the range starts on; the other side is a fallback for side-by-side editors.
-            if (start.type == "new") start.newLine?.let { add(Side.RIGHT to it) }
-            start.oldLine?.let { add(Side.LEFT to it) }
-            start.newLine?.let { add(Side.RIGHT to it) }
-        }
-        return candidates.firstNotNullOfOrNull { (side, line) -> mapping.toEditor(side, line - 1) }
-            ?.takeIf { it <= endEditorLine }
-    }
-
     private fun highlightLines(from: Int, to: Int): RangeHighlighter? {
         val doc = editor.document
         if (from < 0 || to >= doc.lineCount || from > to) return null
@@ -261,10 +263,11 @@ class CommentMarkers(
             override fun actionPerformed(e: AnActionEvent) {
                 // Several threads on one line: open the first unresolved one.
                 val d = threads.firstOrNull { !it.resolved } ?: threads.first()
-                val start = rangeStart(d, line)
-                val highlight = start?.let { highlightLines(it, line) }
-                val suggestion = if (d.position?.newLine != null) newSideText(start ?: line, line) else null
-                ThreadPopup.showThread(project, session, d, pointUnder(line), suggestion) { highlight?.dispose() }
+                val lines = d.position?.let { threadLines(it, mapping) } ?: line..line
+                val highlight = if (lines.first != lines.last) highlightLines(lines.first, lines.last) else null
+                val suggestion = if (d.position?.newLine != null) newSideText(lines.first, lines.last) else null
+                // Under the last line: the highlighted range stays in sight.
+                ThreadPopup.showThread(project, session, d, pointUnder(lines.last), suggestion) { highlight?.dispose() }
             }
         }
 
