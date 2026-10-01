@@ -289,6 +289,12 @@ class LogicTest {
         assertTrue("<a href=\"$base/uploads/ab/s.png\">shot</a>" in img)
         assertTrue("<a href=\"https://e.com\">e</a>" in html("[e](https://e.com)"))
         assertTrue("<a href=\"#x\">" in html("[x](#x)"))
+        // Links come from other people: only web and mail links open, the rest stay plain text.
+        assertTrue("<a href=\"mailto:a@b.c\">" in html("[m](mailto:a@b.c)"))
+        for (link in listOf("[f](file:///Applications/Calculator.app)", "[s](smb://host/share)", "<vscode://open?x=1>", "[j](javascript:alert(1))")) {
+            val out = html(link)
+            assertFalse("href=\"file:" in out || "href=\"smb:" in out || "href=\"vscode:" in out || "href=\"javascript:" in out, out)
+        }
     }
 
     @Test

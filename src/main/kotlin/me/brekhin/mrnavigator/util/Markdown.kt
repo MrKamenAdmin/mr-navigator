@@ -17,13 +17,17 @@ import org.intellij.markdown.parser.MarkdownParser
 object Markdown {
     private val IMG = Regex("""<img src="([^"]*)" alt="([^"]*)" ?/>""")
     private val TASK = Regex("""<input type="checkbox" class="task-list-item-checkbox"( checked)? disabled ?/>""")
+    // A link the OS would hand to some other app (smb:, vscode:, …) — kept as plain text.
+    private val FOREIGN_LINK = Regex("""<a href="(?!(?:https?|mailto):)[a-zA-Z][a-zA-Z0-9+.-]*:[^"]*"[^>]*>(.*?)</a>""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
     // Neither a scheme ("https:", "mailto:") nor an anchor.
     private val RELATIVE_HREF = Regex("""href="(?![a-zA-Z][a-zA-Z0-9+.-]*:|#)([^"]*)"""")
 
     /**
      * Full GitHub-flavoured Markdown for MR descriptions, with the parser bundled in the IDE.
      * Raw HTML of the author is escaped (Swing would interpret `<object>`), images become links
-     * (Swing can't load them: uploads need auth), relative links are resolved against [baseUrl].
+     * (Swing can't load them: uploads need auth), only web and mail links stay clickable,
+     * relative links are resolved against [baseUrl].
      */
     fun gfmToHtml(md: String, baseUrl: String): String {
         val flavour = GFMFlavourDescriptor()
@@ -39,6 +43,7 @@ object Markdown {
             .replace(TASK) { if (it.groupValues[1].isEmpty()) "☐ " else "☑ " }
             // Swing CSS knows no classes from the generator.
             .replace("<span class=\"user-del\">", "<span style=\"text-decoration: line-through\">")
+            .replace(FOREIGN_LINK, "$1")
             .replace(RELATIVE_HREF) { "href=\"${baseUrl.trimEnd('/')}/${it.groupValues[1].trimStart('/')}\"" }
     }
 
