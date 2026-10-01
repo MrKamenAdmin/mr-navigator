@@ -34,18 +34,22 @@ enum class HostingType(
     GITLAB("GitLab", '!', "MR", MrFilter.entries, canSuggest = true, commentsOutsideHunks = true, usernameLabel = null, fixedUrl = null),
     GITHUB("GitHub", '#', "PR", MrFilter.entries, canSuggest = true, commentsOutsideHunks = false, usernameLabel = null, fixedUrl = null),
     BITBUCKET_CLOUD("Bitbucket Cloud", '#', "PR", MrFilter.entries - MrFilter.ASSIGNED, canSuggest = false, commentsOutsideHunks = false,
-        usernameLabel = "connection.email", fixedUrl = "https://bitbucket.org");
+        usernameLabel = "connection.email", fixedUrl = "https://bitbucket.org"),
+    BITBUCKET_SERVER("Bitbucket Data Center", '#', "PR", MrFilter.entries - MrFilter.ASSIGNED, canSuggest = false, commentsOutsideHunks = false,
+        usernameLabel = "connection.username", fixedUrl = null);
 
     fun client(c: Connection, token: String): HostingClient = when (this) {
         GITLAB -> GitLabClient(c.url, token)
         GITHUB -> GitHubClient(c.url, token)
         BITBUCKET_CLOUD -> BitbucketCloudClient(token, c.username)
+        BITBUCKET_SERVER -> BitbucketServerClient(c.url, token, c.username)
     }
 
     fun tokenPageUrl(url: String): String = when (this) {
         GITLAB -> "$url/-/user_settings/personal_access_tokens?name=MR+Navigator&scopes=api"
         GITHUB -> "$url/settings/tokens/new?description=MR%20Navigator&scopes=repo"
         BITBUCKET_CLOUD -> "https://id.atlassian.com/manage-profile/security/api-tokens"
+        BITBUCKET_SERVER -> "$url/account"
     }
 
     override fun toString() = title
@@ -55,6 +59,7 @@ enum class HostingType(
         fun guess(host: String): HostingType = when {
             host == "bitbucket.org" -> BITBUCKET_CLOUD
             "github" in host -> GITHUB
+            "bitbucket" in host -> BITBUCKET_SERVER
             else -> GITLAB
         }
     }

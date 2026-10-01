@@ -1,6 +1,7 @@
 package me.brekhin.mrnavigator.git
 
 import me.brekhin.mrnavigator.api.Connection
+import me.brekhin.mrnavigator.api.HostingType
 
 /** Host and project path parsed from a git remote URL. */
 data class RemoteUrl(val host: String, val path: String) {
@@ -44,7 +45,9 @@ data class RemoteUrl(val host: String, val path: String) {
             if (remote.host != serverHost(c.url)) return null
             val prefix = serverPathPrefix(c.url)
             val path = if (prefix.isNotEmpty() && remote.path.startsWith("$prefix/")) remote.path.removePrefix("$prefix/") else remote.path
-            return path.takeIf { it.contains('/') }
+            // Bitbucket DC clones over https from /scm/<project>/<repo>.
+            val project = if (c.type == HostingType.BITBUCKET_SERVER) path.removePrefix("scm/") else path
+            return project.takeIf { it.contains('/') }
         }
     }
 }

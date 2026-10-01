@@ -1,10 +1,13 @@
 package me.brekhin.mrnavigator
 
 import me.brekhin.mrnavigator.api.BitbucketCloudClient
+import me.brekhin.mrnavigator.api.BitbucketServerClient
+import me.brekhin.mrnavigator.api.Connection
 import me.brekhin.mrnavigator.api.DiffRefs
 import me.brekhin.mrnavigator.api.HostingType
 import me.brekhin.mrnavigator.api.LinePoint
 import me.brekhin.mrnavigator.core.DiffLineMap
+import me.brekhin.mrnavigator.git.RemoteUrl
 import me.brekhin.mrnavigator.util.Json
 import me.brekhin.mrnavigator.util.obj
 import org.junit.Test
@@ -79,6 +82,77 @@ class BitbucketTest {
     @Test
     fun cloudQueryAndHosting() {
         assertEquals("\"a \\\"b\\\" \\\\c\"", BitbucketCloudClient.quote("a \"b\" \\c"))
+        assertEquals(HostingType.BITBUCKET_CLOUD, HostingType.guess("bitbucket.org"))
+    }
+
+    @Test
+    fun serverPull() {
+        val m = obj("""{"id":12,"title":"T","description":"D","state":"OPEN","draft":false,
+            "author":{"user":{"name":"alice","slug":"alice","displayName":"Alice"}},
+            "fromRef":{"displayId":"feat","latestCommit":"h"},"toRef":{"displayId":"main","latestCommit":"s"},
+            "links":{"self":[{"href":"https://bb.corp/projects/P/repos/r/pull-requests/12/overview"}]},
+            "updatedDate":1790000000000,"properties":{"commentCount":3}}""")
+        val mr = BitbucketServerClient.parsePull(m, "b")
+        assertEquals(DiffRefs("b", "s", "h"), mr.diffRefs); assertEquals("h", mr.sha)
+        assertEquals("refs/pull-requests/12/from", mr.fetchRef)
+        assertEquals(java.time.Instant.ofEpochMilli(1790000000000).toString(), mr.updatedAt)
+        assertEquals(3, mr.userNotesCount); assertEquals("open", mr.state); assertEquals("alice", mr.author?.username)
+        assertEquals("https://bb.corp/projects/P/repos/r/pull-requests/12/overview", mr.webUrl)
+        assertNull(BitbucketServerClient.parsePull(m, null).diffRefs)
+    }
+
+    @Test
+    fun serverThreads() {
+        val activities = listOf(
+            """{"action":"COMMENTED","commentAction":"ADDED","comment":{"id":5,"text":"root","author":{"slug":"a","displayName":"A"},
+                "createdDate":1790000000000,"threadResolved":true,
+                "comments":[{"id":6,"text":"reply","author":{"slug":"b"},"createdDate":1790000001000,
+                             "comments":[{"id":7,"text":"nested","createdDate":1790000002000}]}]},
+                "commentAnchor":{"path":"x.go","srcPath":"x.go","line":12,"lineType":"ADDED","fileType":"TO",
+                                 "multilineMarker":{"startLine":10,"startLineType":"CONTEXT"}}}""",
+            """{"action":"COMMENTED","commentAction":"REPLIED","comment":{"id":6,"text":"reply"}}""",
+            """{"action":"COMMENTED","commentAction":"ADDED","comment":{"id":8,"text":"gone"}}""",
+            """{"action":"COMMENTED","commentAction":"DELETED","comment":{"id":8}}""",
+            """{"action":"COMMENTED","commentAction":"ADDED","comment":{"id":9,"text":"general","createdDate":1790000000000}}""",
+            """{"action":"APPROVED"}""",
+            """{"action":"COMMENTED","commentAction":"ADDED","comment":{"id":10,"text":"old"},
+                "commentAnchor":{"path":"y.go","line":3,"lineType":"REMOVED","fileType":"FROM","orphaned":true}}""",
+        ).map { obj(it) }
+        val threads = BitbucketServerClient.threads(activities)
+        assertEquals(setOf("5", "9", "10"), threads.map { it.id }.toSet())
+        val t = threads.first { it.id == "5" }
+        assertEquals(listOf("root", "reply", "nested"), t.notes.map { it.body }); assertTrue(t.resolved)
+        assertEquals(12, t.position!!.newLine)
+        assertEquals(LinePoint("", "new", null, 10), t.position!!.lineRange!!.start)
+        assertNull(threads.first { it.id == "9" }.position)
+        val old = threads.first { it.id == "10" }.position!!
+        assertEquals(3, old.oldLine); assertTrue(old.isOutdatedFor("anything"))
+    }
+
+    @Test
+    fun serverPayloads() {
+        val refs = DiffRefs("b", "s", "h")
+        fun anchor(p: me.brekhin.mrnavigator.api.Position) = BitbucketServerClient.commentPayload("x", p, refs)["anchor"] as Map<*, *>
+        val ctx = anchor(map.position("b", "s", "h", "f.go", "f.go", 2, onNewSide = true))
+        assertEquals(2, ctx["line"]); assertEquals("CONTEXT", ctx["lineType"]); assertEquals("TO", ctx["fileType"])
+        assertEquals("b", ctx["fromHash"]); assertEquals("h", ctx["toHash"]); assertEquals("EFFECTIVE", ctx["diffType"])
+        val removed = anchor(map.position("b", "s", "h", "f.go", "f.go", 3, onNewSide = false))
+        assertEquals("REMOVED", removed["lineType"]); assertEquals("FROM", removed["fileType"]); assertEquals(3, removed["line"])
+        val range = anchor(map.position("b", "s", "h", "f.go", "f.go", end = DiffLineMap.Line(4, true), start = DiffLineMap.Line(3, false)))
+        assertEquals("ADDED", range["lineType"]); assertEquals(4, range["line"])
+        assertEquals(mapOf("startLine" to 3, "startLineType" to "REMOVED"), range["multilineMarker"])
+        assertEquals(mapOf("text" to "x"), BitbucketServerClient.commentPayload("x", null, refs))
+    }
+
+    @Test
+    fun serverRemotes() {
+        val dc = Connection(HostingType.BITBUCKET_SERVER, "https://bb.corp")
+        assertEquals("PROJ/repo", RemoteUrl.projectPath(RemoteUrl.parse("ssh://git@bb.corp:7999/PROJ/repo.git")!!, dc))
+        assertEquals("proj/repo", RemoteUrl.projectPath(RemoteUrl.parse("https://bb.corp/scm/proj/repo.git")!!, dc))
+        assertEquals("~alice/repo", RemoteUrl.projectPath(RemoteUrl.parse("https://bb.corp/scm/~alice/repo.git")!!, dc))
+        assertEquals("proj/repo", RemoteUrl.projectPath(RemoteUrl.parse("https://bb.corp/bitbucket/scm/proj/repo.git")!!,
+            dc.copy(url = "https://bb.corp/bitbucket")))
+        assertEquals(HostingType.BITBUCKET_SERVER, HostingType.guess("bitbucket.corp.com"))
         assertEquals(HostingType.BITBUCKET_CLOUD, HostingType.guess("bitbucket.org"))
     }
 }
