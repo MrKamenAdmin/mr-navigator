@@ -206,6 +206,7 @@ data class Note(
     val resolved: Boolean,
     val position: Position?,
     val resolvedBy: User? = null,
+    val suggestions: List<NoteSuggestion> = emptyList(),
 ) {
     companion object {
         fun from(m: Map<String, Any?>) = Note(
@@ -218,7 +219,15 @@ data class Note(
             resolved = m.bool("resolved"),
             position = Position.from(m.o("position")),
             resolvedBy = User.from(m.o("resolved_by")),
+            suggestions = m.a("suggestions").map { NoteSuggestion.from(it.obj()) },
         )
+    }
+}
+
+/** A suggestion of a diff note; [appliable] is GitLab's verdict (false once applied, outdated or the MR is closed). */
+data class NoteSuggestion(val id: Long, val appliable: Boolean, val applied: Boolean) {
+    companion object {
+        fun from(m: Map<String, Any?>) = NoteSuggestion(m.long("id") ?: 0, m.bool("appliable"), m.bool("applied"))
     }
 }
 

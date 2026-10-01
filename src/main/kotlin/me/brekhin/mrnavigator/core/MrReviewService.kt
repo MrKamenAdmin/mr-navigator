@@ -348,6 +348,11 @@ class MrReviewService(private val ideProject: Project) {
         refreshDiscussions(s)
     }
 
+    fun applySuggestions(s: MrSession, ids: List<Long>) {
+        client().applySuggestions(ids)
+        refreshDiscussions(s)
+    }
+
     companion object {
         fun getInstance(project: Project): MrReviewService = project.service()
     }

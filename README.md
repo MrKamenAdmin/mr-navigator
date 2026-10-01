@@ -20,7 +20,7 @@ The built-in GitLab integration shows the merge request diff from revisions, so 
   - thread icons in the diff gutter; a click opens the thread to read, reply, resolve or open in the browser;
   - **+** on the hovered line, or right click → **«Комментарий к строке / выделению (GitLab MR)»** (*Comment on line / selection*), starts a new thread;
   - **multi-line comments**: select lines and click **+** — in the unified view a range can go from a removed line to an added one, just like on GitLab;
-  - **suggestions**: **«Предложить изменение»** (*Suggest a change*) inserts a `suggestion` block with the current code of the line(s); the author applies it on GitLab;
+  - **suggestions**: **«Предложить изменение»** (*Suggest a change*) inserts a `suggestion` block with the current code of the line(s); **«Применить suggestion»** (*Apply suggestion*) under a comment commits it to the merge request branch through GitLab, like the button on the web;
   - the **«Обсуждение»** (*Discussion*) tab lists all threads, open ones first; a double click on a line thread opens the diff at that line.
 - **Files tab:** +/− line counts per file, *viewed* marks (set automatically when a file is opened, Space toggles, reset by new commits).
 - **Several repositories in one folder:** a repository switcher appears when the opened folder contains several GitLab repositories.
@@ -96,7 +96,7 @@ Without checkout the diff still opens, but its right side is a revision rather t
 
 - Threads that became outdated after new commits are not drawn in the gutter; they are listed on the Discussion tab, marked as outdated.
 - No line comments for files whose diff GitLab doesn't return because of their size.
-- Suggestions are possible only on lines of the new version, as on GitLab. Applying suggestions from the IDE is not supported yet.
+- Suggestions are possible only on lines of the new version, as on GitLab. An applied suggestion is a new commit on GitLab: refresh the merge request and check it out again to get it locally.
 - In the side-by-side view a range stays on one side; switch to the unified view to select removed and added lines together.
 - If you edit files on an `mr/<iid>` branch and then check out another merge request in the same repository, those edits are stashed (marked `mr-review` in `git stash list`) but not restored by *Go back*; the changes stashed by the first checkout are.
 
@@ -109,7 +109,7 @@ Issues and pull requests are welcome.
 ./gradlew runIde     # sandbox GoLand with the plugin
 ```
 
-Good first contributions: English UI (moving strings to a resource bundle), applying suggestions from the IDE, drafts of unsent comments.
+Good first contributions: English UI (moving strings to a resource bundle), drafts of unsent comments.
 
 ## License
 

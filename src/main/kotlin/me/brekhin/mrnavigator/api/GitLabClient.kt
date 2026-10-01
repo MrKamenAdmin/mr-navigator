@@ -133,6 +133,12 @@ class GitLabClient(serverUrl: String, private val token: String) {
         json("PUT", "${proj(project)}/merge_requests/$iid/discussions/$discussionId?resolved=$resolved", emptyMap<String, Any?>())
     }
 
+    /** GitLab commits the suggestions to the source branch, like "Apply suggestion" on the web. */
+    fun applySuggestions(ids: List<Long>) {
+        if (ids.size == 1) json("PUT", "/suggestions/${ids[0]}/apply", emptyMap<String, Any?>())
+        else json("PUT", "/suggestions/batch_apply", mapOf("ids" to ids))
+    }
+
     fun approve(project: ProjectRef, iid: Long, sha: String?) {
         json("POST", "${proj(project)}/merge_requests/$iid/approve", if (sha != null) mapOf("sha" to sha) else emptyMap<String, Any?>())
     }

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Apply suggestions from the comment thread: GitLab commits them to the merge request branch.
+
 ## 0.1.0
 
 First public version.

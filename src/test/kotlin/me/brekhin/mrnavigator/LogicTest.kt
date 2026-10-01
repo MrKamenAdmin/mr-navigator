@@ -2,6 +2,8 @@ package me.brekhin.mrnavigator
 
 import me.brekhin.mrnavigator.api.FileChange
 import me.brekhin.mrnavigator.api.LinePoint
+import me.brekhin.mrnavigator.api.Note
+import me.brekhin.mrnavigator.api.NoteSuggestion
 import me.brekhin.mrnavigator.api.Position
 import me.brekhin.mrnavigator.core.DiffLineMap
 import me.brekhin.mrnavigator.core.HiddenFiles
@@ -216,6 +218,14 @@ class LogicTest {
         val back = Json.write(mapOf("body" to "a \"q\"\nb", "n" to 3, "p" to mapOf("x" to null)))
         assertEquals("""{"body":"a \"q\"\nb","n":3,"p":{"x":null}}""", back)
         assertEquals(Json.parse(back), Json.parse(Json.write(Json.parse(back))))
+        assertEquals("""{"ids":[7,8]}""", Json.write(mapOf("ids" to listOf(7L, 8L))))
+    }
+
+    @Test
+    fun noteSuggestions() {
+        val n = Note.from(Json.parse("""{"id":1,"suggestions":[{"id":7,"appliable":true,"applied":false},{"id":8,"applied":true}]}""").obj())
+        assertEquals(listOf(NoteSuggestion(7, true, false), NoteSuggestion(8, false, true)), n.suggestions)
+        assertEquals(emptyList(), Note.from(Json.parse("""{"id":2}""").obj()).suggestions)
     }
 
     @Test

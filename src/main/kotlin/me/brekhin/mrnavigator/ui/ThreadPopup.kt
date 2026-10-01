@@ -92,11 +92,20 @@ object ThreadPopup {
                 onError = { busy(false); Notify.error(project, "Не получилось", it) }) { popup.cancel() }
         }
         openWeb.addActionListener { BrowserUtil.browse(session.mr.webUrl + "#note_" + (discussion.first?.id ?: "")) }
+        val applySuggestions = { ids: List<Long>, button: JButton ->
+            busy(true); button.isEnabled = false
+            Bg.run(project, "Применение suggestion", work = { service.applySuggestions(session, ids) },
+                onError = { busy(false); button.isEnabled = true; Notify.error(project, "Suggestion не применён", it) }) {
+                popup.cancel()
+                Notify.info(project, "Suggestion применён: GitLab добавил коммит в ${session.mr.sourceBranch}. " +
+                    "Чтобы получить его локально, обновите MR и сделайте «Checkout и ревью»")
+            }
+        }
 
         val panel = JPanel(BorderLayout(0, JBUI.scale(8))).apply {
             border = JBUI.Borders.empty(8, 10, 10, 10)
             if (discussion.resolved) add(resolvedBanner(discussion), BorderLayout.NORTH)
-            add(notesView(discussion), BorderLayout.CENTER)
+            add(notesView(discussion, applySuggestions), BorderLayout.CENTER)
             add(editor(input,
                 left = listOf(reply, suggestionButton(input, suggestionLines)),
                 right = listOf(resolve, openWeb)), BorderLayout.SOUTH)
@@ -162,9 +171,9 @@ object ThreadPopup {
     }
 
     /** Notes one under another, separated by thin lines; scrolls when the thread is long. */
-    private fun notesView(d: Discussion): JComponent {
+    private fun notesView(d: Discussion, onApply: (List<Long>, JButton) -> Unit): JComponent {
         val notes = WidthTrackingPanel()
-        d.notes.filter { !it.system }.forEachIndexed { i, n -> notes.add(noteView(n, separator = i > 0)) }
+        d.notes.filter { !it.system }.forEachIndexed { i, n -> notes.add(noteView(n, separator = i > 0, onApply)) }
 
         // Height of the content at the popup width, capped — longer threads scroll.
         // Lay out twice: the first pass gives the HTML panes their width, the second their wrapped height.
@@ -183,7 +192,7 @@ object ThreadPopup {
         for (child in c.components) if (child is Container) layoutAll(child)
     }
 
-    private fun noteView(n: Note, separator: Boolean): JComponent = JPanel(BorderLayout(0, JBUI.scale(2))).apply {
+    private fun noteView(n: Note, separator: Boolean, onApply: (List<Long>, JButton) -> Unit): JComponent = JPanel(BorderLayout(0, JBUI.scale(2))).apply {
         isOpaque = false
         border = if (separator) {
             JBUI.Borders.compound(JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0), JBUI.Borders.emptyTop(8))
@@ -198,6 +207,22 @@ object ThreadPopup {
         }
         add(header, BorderLayout.NORTH)
         add(htmlBody(n.body), BorderLayout.CENTER)
+        suggestionState(n, onApply)?.let { add(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false; add(it) }, BorderLayout.SOUTH) }
+    }
+
+    /** Like GitLab's "Apply suggestion": a button for the note's suggestions, or a mark that they are applied. */
+    private fun suggestionState(n: Note, onApply: (List<Long>, JButton) -> Unit): JComponent? {
+        if (n.suggestions.isEmpty()) return null
+        val ids = n.suggestions.filter { it.appliable }.map { it.id }
+        if (ids.isEmpty() && n.suggestions.all { it.applied }) {
+            return JBLabel("Suggestion применён", AllIcons.General.InspectionsOK, SwingConstants.LEFT)
+        }
+        return JButton("Применить suggestion", AllIcons.Actions.IntentionBulb).apply {
+            isEnabled = ids.isNotEmpty()
+            toolTipText = if (isEnabled) "GitLab закоммитит изменение в ветку MR" else
+                "GitLab не даёт применить: suggestion устарел, MR закрыт или изменение уже в коде"
+            addActionListener { onApply(ids, this) }
+        }
     }
 
     private fun htmlBody(markdown: String): JComponent = JEditorPane(UIUtil.HTML_MIME, "<html><body>${Markdown.toHtml(markdown)}</body></html>").apply {
