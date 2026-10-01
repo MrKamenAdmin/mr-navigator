@@ -70,7 +70,15 @@ class DiffLineMap(diff: String) {
     fun isRemoved(oldLine: Int) = oldLine in removed
 
     /** Whether [line] lies in a hunk — GitHub and Bitbucket accept comments only on such lines. */
-    fun inHunk(line: Int, onNewSide: Boolean): Boolean = hunks.any { h ->
+    fun inHunk(line: Int, onNewSide: Boolean): Boolean = hunkOf(line, onNewSide) != null
+
+    /** A comment GitHub and Bitbucket accept: on a line of a hunk, a range — within one hunk. */
+    fun withinOneHunk(end: Line, start: Line? = null): Boolean {
+        val hunk = hunkOf(end.line, end.onNewSide) ?: return false
+        return start == null || hunkOf(start.line, start.onNewSide) == hunk
+    }
+
+    private fun hunkOf(line: Int, onNewSide: Boolean): Hunk? = hunks.firstOrNull { h ->
         if (onNewSide) line >= h.newStart && line < h.newStart + h.newCount
         else line >= h.oldStart && line < h.oldStart + h.oldCount
     }

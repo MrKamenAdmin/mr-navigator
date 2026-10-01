@@ -184,16 +184,13 @@ class CommentMarkers(
         val refs = s.refs
         val c = ctx.change
         val map = s.lineMap(c)
-        if (!s.type.commentsOutsideHunks && listOfNotNull(start, endSide to endLine).any { (side, line) -> !map.inHunk(line + 1, side == Side.RIGHT) }) {
+        val end = DiffLineMap.Line(endLine + 1, endSide == Side.RIGHT)
+        val first = start?.let { (side, line) -> DiffLineMap.Line(line + 1, side == Side.RIGHT) }
+        if (!s.type.commentsOutsideHunks && !map.withinOneHunk(end, first)) {
             Notify.info(project, msg("diff.outsideHunk", s.type.title))
             return
         }
-        val position = map.position(
-            refs.baseSha, refs.startSha, refs.headSha,
-            c.oldPath, c.newPath,
-            end = DiffLineMap.Line(endLine + 1, endSide == Side.RIGHT),
-            start = start?.let { (side, line) -> DiffLineMap.Line(line + 1, side == Side.RIGHT) },
-        )
+        val position = map.position(refs.baseSha, refs.startSha, refs.headSha, c.oldPath, c.newPath, end = end, start = first)
         val highlight = startEditorLine?.let { highlightLines(it, endEditorLine) }
         val suggestion = if (position.newLine != null) newSideText(startEditorLine ?: endEditorLine, endEditorLine) else null
         ThreadPopup.showNew(project, s, position, pointUnder(endEditorLine), suggestion) { highlight?.dispose() }

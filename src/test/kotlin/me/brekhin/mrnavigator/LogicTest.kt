@@ -124,6 +124,17 @@ class LogicTest {
     }
 
     @Test
+    fun rangesWithinOneHunk() {
+        // Hunks: new lines 2..5 / old 2..4, and new 8..9 / old 7..9.
+        val m = DiffLineMap("@@ -2,3 +2,4 @@\n two\n-three\n+THREE\n+three-and-half\n four\n@@ -7,3 +8,2 @@\n seven\n-eight\n nine")
+        assertTrue(m.withinOneHunk(DiffLineMap.Line(8, true)))
+        assertFalse(m.withinOneHunk(DiffLineMap.Line(6, true)))
+        assertTrue(m.withinOneHunk(DiffLineMap.Line(4, true), start = DiffLineMap.Line(3, false)))
+        // GitHub rejects a range that spans two hunks, though both ends are in the diff.
+        assertFalse(m.withinOneHunk(DiffLineMap.Line(9, true), start = DiffLineMap.Line(3, true)))
+    }
+
+    @Test
     fun lineRanges() {
         val diff = """
             @@ -2,3 +2,4 @@ func a() {
