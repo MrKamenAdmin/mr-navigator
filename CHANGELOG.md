@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+- Merge can't be cancelled midway any more: a sent merge goes on on the server, and a cancel reported it as failed. Bitbucket Cloud no longer waits a minute for a merge that is already done.
+- A Comment review with no comments and no summary is not submitted.
+- A comment, reply or review that was sent is no longer reported as failed when only the refresh after it failed — retrying used to post it twice.
+- GitLab: a merge status that is still being computed is not shown as a blocker; "Delete source branch" set in the merge request is preselected (also on Bitbucket Cloud); a pipeline waiting for a manual job is shown as waiting, not running.
+- GitHub: the reason a pull request can't be merged is told in words — conflicts, branch protection, draft.
+- GitHub and Bitbucket Cloud: the diff opens after the target branch was force-pushed.
+- Broken drafts saved without a file or a line are dropped.
+
 ## 0.4.0
 
 - Reviews: keep line comments as drafts and submit them together with a summary and a verdict — Comment, Approve or Request changes. One notification on GitLab, GitHub and Bitbucket Data Center.
