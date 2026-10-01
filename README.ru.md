@@ -33,9 +33,11 @@
 
 ## Установка
 
-Плагина пока нет в JetBrains Marketplace, собирается из исходников.
+Плагина пока нет в JetBrains Marketplace.
 
-Для запуска Gradle нужен JDK 17+; JDK 25, который требует IntelliJ Platform 2026.2, скачается автоматически.
+**Из релиза.** Скачайте `mr-navigator-<версия>.zip` со страницы [Releases](https://github.com/MrKamenAdmin/mr-navigator/releases), затем в IDE: **Settings → Plugins → ⚙ → Install Plugin from Disk…** и выберите этот zip. Распаковывать не нужно.
+
+**Из исходников.** Для запуска Gradle нужен JDK 17+; JDK 25, который требует IntelliJ Platform 2026.2, скачается автоматически.
 
 ```bash
 git clone https://github.com/MrKamenAdmin/mr-navigator.git
@@ -43,7 +45,7 @@ cd mr-navigator
 ./gradlew buildPlugin
 ```
 
-Затем в GoLand: **Settings → Plugins → ⚙ → Install Plugin from Disk…** и выберите `build/distributions/mr-navigator-<версия>.zip`.
+Затем установите `build/distributions/mr-navigator-<версия>.zip` так же.
 
 Попробовать в отдельной тестовой IDE, не трогая свою GoLand:
 

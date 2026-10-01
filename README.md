@@ -35,9 +35,11 @@ The built-in GitLab integration shows the merge request diff from revisions, so 
 
 ## Installation
 
-The plugin is not on JetBrains Marketplace yet; build it from source.
+The plugin is not on JetBrains Marketplace yet.
 
-You need JDK 17+ to run Gradle; the JDK 25 toolchain required by IntelliJ Platform 2026.2 is downloaded automatically.
+**From a release.** Download `mr-navigator-<version>.zip` from [Releases](https://github.com/MrKamenAdmin/mr-navigator/releases), then in the IDE: **Settings → Plugins → ⚙ → Install Plugin from Disk…** and choose the zip. Don't unpack it.
+
+**From source.** You need JDK 17+ to run Gradle; the JDK 25 toolchain required by IntelliJ Platform 2026.2 is downloaded automatically.
 
 ```bash
 git clone https://github.com/MrKamenAdmin/mr-navigator.git
@@ -45,7 +47,7 @@ cd mr-navigator
 ./gradlew buildPlugin
 ```
 
-Then in GoLand: **Settings → Plugins → ⚙ → Install Plugin from Disk…** and choose `build/distributions/mr-navigator-<version>.zip`.
+Then install `build/distributions/mr-navigator-<version>.zip` the same way.
 
 To try it in a sandbox IDE without touching your own GoLand:
 
