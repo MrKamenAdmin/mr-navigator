@@ -13,6 +13,9 @@ object Drafts {
     fun encode(drafts: List<Draft>): String =
         Json.write(drafts.map { mapOf("id" to it.id, "body" to it.body, "position" to it.position.toJson()) })
 
+    /** Drafts written for the [head] version (or before versions were known); the others point at moved lines. */
+    fun current(drafts: List<Draft>, head: String?): List<Draft> = drafts.filterNot { it.position.isOutdatedFor(head) }
+
     /** Unreadable entries are dropped: a draft is not worth an error. */
     fun decode(text: String?): List<Draft> {
         if (text.isNullOrBlank()) return emptyList()

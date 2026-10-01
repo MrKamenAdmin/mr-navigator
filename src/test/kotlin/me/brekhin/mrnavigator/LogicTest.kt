@@ -161,6 +161,24 @@ class LogicTest {
     }
 
     @Test
+    fun commentsDoNotNeedTheMergeBase() {
+        // A new comment's position needs only the refs the server gave: no merge base yet on GitHub / Bitbucket Cloud.
+        val mr = GitHubClient.parsePull(Json.parse("""{"number":5,"base":{"sha":"b"},"head":{"sha":"h"}}""").obj())
+        val s = MrSession(ProjectRef("https://github.com", "o/r"), Connection(HostingType.GITHUB, "https://github.com"),
+            GitCli(java.io.File(".")), "origin", mr, emptyList(), emptyList(), Reviews.NONE)
+        assertEquals(DiffRefs(null, "b", "h"), s.diffRefs)
+    }
+
+    @Test
+    fun draftsOfAnOlderVersionAreNotSent() {
+        val m = DiffLineMap("@@ -1 +1 @@\n-a\n+b")
+        val old = Draft("1", "old", m.position("b", "s", "h1", "f.go", "f.go", 1, onNewSide = true))
+        val now = Draft("2", "now", m.position("b", "s", "h2", "f.go", "f.go", 1, onNewSide = true))
+        assertEquals(listOf(now), Drafts.current(listOf(old, now), "h2"))
+        assertEquals(listOf(old, now), Drafts.current(listOf(old, now), null))
+    }
+
+    @Test
     fun draftsRoundTrip() {
         val m = DiffLineMap("@@ -2,3 +2,4 @@\n two\n-three\n+THREE\n+three-and-half\n four")
         val drafts = listOf(

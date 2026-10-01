@@ -152,5 +152,7 @@ class GitHubTest {
         val fork = obj("""{"mergeable":true,"head":{"repo":{"full_name":"me/r"}},"base":{"repo":{"full_name":"o/r"}}}""")
         val f = GitHubClient.mergeOptions(fork, obj("{}"))
         assertEquals(listOf("merge", "squash", "rebase"), f.strategies.map { it.id }); assertFalse(f.canDeleteBranch); assertNull(f.blocker)
+        // The repository deletes merged branches itself: deleting it again would fail a successful merge.
+        assertFalse(GitHubClient.mergeOptions(pr, obj("""{"delete_branch_on_merge":true}""")).canDeleteBranch)
     }
 }

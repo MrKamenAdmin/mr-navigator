@@ -1,7 +1,9 @@
 package me.brekhin.mrnavigator
 
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import me.brekhin.mrnavigator.api.ApiException
 import me.brekhin.mrnavigator.api.CiState
 import me.brekhin.mrnavigator.api.Draft
 import me.brekhin.mrnavigator.api.GitLabClient
@@ -35,5 +37,27 @@ class GitLabTest {
         assertEquals("not approved", o.blocker); assertTrue(o.canDeleteBranch)
         val ok = GitLabClient.mergeOptions(obj("""{"detailed_merge_status":"mergeable"}"""), obj("""{"squash_option":"never"}"""))
         assertNull(ok.blocker); assertEquals(listOf("merge"), ok.strategies.map { it.id })
+    }
+
+    @Test
+    fun failedReviewLeavesNoServerDrafts() {
+        val p = DiffLineMap("@@ -1 +1 @@\n-a\n+b").position("b", "s", "h", "f.go", "f.go", 1, onNewSide = true)
+        val drafts = listOf(Draft("1", "x", p), Draft("2", "y", p))
+        val calls = ArrayList<String>()
+        var published: List<Draft>? = null
+        var next = 10L
+        val failing = { method: String, path: String, _: Any? ->
+            calls += "$method $path"
+            if (path.endsWith("bulk_publish")) throw ApiException("boom", 500)
+            mapOf("id" to next++)
+        }
+        assertFailsWith<ApiException> { GitLabClient.publishDrafts("/mr", drafts, "sum", { published = it }, failing) }
+        // Nothing got published, so this attempt's server drafts are removed — a retry won't send them twice.
+        assertNull(published)
+        assertEquals(listOf("DELETE /mr/draft_notes/10", "DELETE /mr/draft_notes/11", "DELETE /mr/draft_notes/12"), calls.filter { it.startsWith("DELETE") })
+        calls.clear()
+        GitLabClient.publishDrafts("/mr", drafts, "", { published = it }) { method, path, _ -> calls += "$method $path"; mapOf("id" to 1L) }
+        assertEquals(drafts, published)
+        assertEquals(listOf("POST /mr/draft_notes", "POST /mr/draft_notes", "POST /mr/draft_notes/bulk_publish"), calls)
     }
 }

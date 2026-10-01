@@ -125,8 +125,11 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
     override fun reviews(project: ProjectRef, mr: MergeRequest): Reviews = reviewStates(paged("${pull(project, mr)}/reviews"))
 
     /** One review with all comments: one notification. */
-    override fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String) {
+    override fun submitReview(
+        project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String, published: (List<Draft>) -> Unit,
+    ) {
         send("POST", "${pull(project, mr)}/reviews", reviewPayload(drafts, verdict, summary, mr.diffRefs?.headSha ?: mr.sha))
+        published(drafts)
     }
 
     override fun checks(project: ProjectRef, mr: MergeRequest): Checks {
@@ -144,7 +147,12 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
         mr.sha?.let { payload["sha"] = it }
         strategy?.let { payload["merge_method"] = it }
         send("PUT", "${pull(project, mr)}/merge", payload)
-        if (deleteBranch) http.call("DELETE", api + "${repo(project)}/git/refs/heads/${mr.sourceBranch}")
+        if (!deleteBranch) return
+        // The merge is done: a branch that can't be deleted (protected, already gone) doesn't make it fail.
+        try {
+            http.call("DELETE", api + "${repo(project)}/git/refs/heads/${mr.sourceBranch}")
+        } catch (e: ApiException) {
+        }
     }
 
     companion object {
@@ -308,9 +316,11 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
             ).map { MergeStrategy.of(it) }
             val head = pr.o("head")?.o("repo")?.str("full_name")
             val sameRepo = head != null && head == pr.o("base")?.o("repo")?.str("full_name")
+            // A repository that deletes merged branches itself needs no checkbox.
+            val canDelete = sameRepo && repo["delete_branch_on_merge"] != true
             val state = pr.str("mergeable_state")
             val blocked = pr["mergeable"] == false || state == "dirty" || state == "blocked"
-            return MergeOptions(strategies, strategies.firstOrNull()?.id, sameRepo, if (blocked) state ?: "not mergeable" else null)
+            return MergeOptions(strategies, strategies.firstOrNull()?.id, canDelete, if (blocked) state ?: "not mergeable" else null)
         }
 
         /** The latest decisive review of each user (comment-only reviews don't change the state). */

@@ -82,8 +82,11 @@ interface HostingClient {
     fun unapprove(project: ProjectRef, mr: MergeRequest)
     /** Who approved and who requested changes. */
     fun reviews(project: ProjectRef, mr: MergeRequest): Reviews
-    /** Publishes [drafts] and [summary] with [verdict] — with one notification where the server can. */
-    fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String)
+    /**
+     * Publishes [drafts] and [summary] with [verdict] — with one notification where the server can. [published]
+     * gets the drafts the server has published, even when a later step (the verdict) fails.
+     */
+    fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String, published: (List<Draft>) -> Unit)
     fun withdrawChanges(project: ProjectRef, mr: MergeRequest)
     /** CI of the head commit. */
     fun checks(project: ProjectRef, mr: MergeRequest): Checks

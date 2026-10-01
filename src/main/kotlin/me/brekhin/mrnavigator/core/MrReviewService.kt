@@ -47,10 +47,13 @@ class MrSession(
     /** Merge base computed by git when the server doesn't give it (GitHub, Bitbucket Cloud); set by ensureCommits. */
     @Volatile var localBase: String? = null
 
+    /** The refs as the server gave them — enough for comment positions; the merge base may still be unknown. */
+    val diffRefs: DiffRefs get() = mr.diffRefs ?: throw ApiException(msg("error.noDiffRefs", ref, type.title))
+
     /** Diff refs with the merge base known — for GitHub and Bitbucket Cloud only after [MrReviewService.ensureCommits]. */
     val refs: DiffRefs
         get() {
-            val r = mr.diffRefs ?: throw ApiException(msg("error.noDiffRefs", ref, type.title))
+            val r = diffRefs
             return if (r.baseSha != null) r else r.copy(baseSha = localBase ?: throw ApiException(msg("error.noMergeBase", ref)))
         }
 
@@ -210,11 +213,7 @@ class MrReviewService(private val ideProject: Project) {
         val discussions = client.discussions(repo.project, full)
         val reviews = client.reviews(repo.project, full)
         val s = MrSession(repo.project, repo.connection, GitCli(repo.root), repo.remoteName, full, changes, discussions, reviews)
-        s.checks = try {
-            client.checks(repo.project, full)
-        } catch (e: ApiException) {
-            Checks.NONE
-        }
+        s.checks = Checks.orNone { client.checks(repo.project, full) }
         loadViewed(s)
         session = s
         fireChanged()
@@ -266,7 +265,7 @@ class MrReviewService(private val ideProject: Project) {
     }
 
     fun isCheckedOut(s: MrSession): Boolean = try {
-        s.git.headSha() == s.refs.headSha
+        s.git.headSha() == s.diffRefs.headSha
     } catch (e: Exception) {
         false
     }
@@ -295,8 +294,8 @@ class MrReviewService(private val ideProject: Project) {
      */
     fun checkout(s: MrSession): String {
         val git = s.git
-        val refs = s.refs
         ensureCommits(s)
+        val refs = s.refs
 
         if (git.headSha() == refs.headSha) return msg("checkout.alreadyOnMr", s.type.term)
 
@@ -433,10 +432,16 @@ class MrReviewService(private val ideProject: Project) {
         fireChanged()
     }
 
-    /** Sends the drafts with [summary] and [verdict]; the drafts are dropped only after the server took them. */
+    /**
+     * Sends the drafts of the current version with [summary] and [verdict]. A draft is dropped only once the
+     * server published it — so a retry after a failure doesn't send it twice, and a draft added meanwhile stays.
+     */
     fun submitReview(s: MrSession, verdict: Verdict, summary: String) {
-        client(s.connection).submitReview(s.project, s.mr, drafts(s), verdict, summary)
-        changeDrafts(s) { it.clear() }
+        val drafts = Drafts.current(drafts(s), s.mr.diffRefs?.headSha)
+        client(s.connection).submitReview(s.project, s.mr, drafts, verdict, summary) { sent ->
+            val ids = sent.map { it.id }.toSet()
+            changeDrafts(s) { list -> list.removeAll { it.id in ids } }
+        }
         refreshDiscussions(s)
         refreshReviews(s)
     }

@@ -93,8 +93,13 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
         participants(get(pr(project, mr)).a("participants").map { it.obj() })
 
     /** Bitbucket Cloud has no API for a batched review: the comments go one by one. */
-    override fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String) {
-        drafts.forEach { createDiscussion(project, mr, it.body, it.position) }
+    override fun submitReview(
+        project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String, published: (List<Draft>) -> Unit,
+    ) {
+        drafts.forEach {
+            createDiscussion(project, mr, it.body, it.position)
+            published(listOf(it))
+        }
         if (summary.isNotBlank()) createDiscussion(project, mr, summary, null)
         when (verdict) {
             Verdict.APPROVE -> approve(project, mr)

@@ -108,9 +108,10 @@ class BitbucketServerClient(serverUrl: String, token: String, username: String?)
     override fun reviews(project: ProjectRef, mr: MergeRequest): Reviews = reviewers(get(pr(project, mr)).a("reviewers").map { it.obj() })
 
     /** Pending comments published by one "review" call with the status: one notification. */
-    override fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String) {
+    override fun submitReview(
+        project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String, published: (List<Draft>) -> Unit,
+    ) {
         val path = pr(project, mr)
-        drafts.forEach { send("POST", "$path/comments", commentPayload(it.body, it.position, mr.diffRefs) + ("state" to "PENDING")) }
         if (drafts.isEmpty() && summary.isBlank()) {
             when (verdict) {
                 Verdict.APPROVE -> setStatus(project, mr, "APPROVED")
@@ -119,7 +120,9 @@ class BitbucketServerClient(serverUrl: String, token: String, username: String?)
             }
             return
         }
-        send("PUT", "$path/review?version=${get(path).int("version") ?: 0}", reviewPayload(verdict, summary))
+        publishPending(path, drafts, verdict, summary, mr.diffRefs, { get(path).int("version") ?: 0 }, published) { method, url, body ->
+            if (body == null) http.call(method, api + url).json() else send(method, url, body)
+        }
     }
 
     override fun withdrawChanges(project: ProjectRef, mr: MergeRequest) = setStatus(project, mr, "UNAPPROVED")
@@ -169,6 +172,29 @@ class BitbucketServerClient(serverUrl: String, token: String, username: String?)
                 else -> null
             }
             return MergeOptions(strategies, config?.o("defaultStrategy")?.str("id"), canDeleteBranch = false, blocker = blocker)
+        }
+
+        /**
+         * Pending comments published by one "review" call with the status: one notification. If it fails, this
+         * attempt's pending comments are discarded — a retry would publish them twice.
+         */
+        internal fun publishPending(
+            prPath: String, drafts: List<Draft>, verdict: Verdict, summary: String, refs: DiffRefs?, version: () -> Int,
+            published: (List<Draft>) -> Unit, call: (method: String, path: String, body: Any?) -> Any?,
+        ) {
+            try {
+                drafts.forEach { call("POST", "$prPath/comments", commentPayload(it.body, it.position, refs) + ("state" to "PENDING")) }
+                call("PUT", "$prPath/review?version=${version()}", reviewPayload(verdict, summary))
+            } catch (e: ApiException) {
+                if (drafts.isNotEmpty()) {
+                    try {
+                        call("DELETE", "$prPath/review", null)
+                    } catch (ignored: ApiException) {
+                    }
+                }
+                throw e
+            }
+            published(drafts)
         }
 
         internal fun reviewers(rs: List<Map<String, Any?>>): Reviews {

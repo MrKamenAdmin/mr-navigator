@@ -149,7 +149,8 @@ class CommentMarkers(
         }
         // Drafts of the review on this file, on their first line like threads.
         for (draft in service.drafts(s)) {
-            if (!s.onFile(draft.position, ctx.change)) continue
+            // A draft written for an older version would sit on whatever code moved to its line: it waits in the review dialog.
+            if (!s.onFile(draft.position, ctx.change) || draft.position.isOutdatedFor(s.mr.diffRefs?.headSha)) continue
             val lines = threadLines(draft.position, mapping)?.takeIf { it.last < lineCount } ?: continue
             val h = editor.markupModel.addLineHighlighter(lines.first, HighlighterLayer.LAST, null)
             h.gutterIconRenderer = DraftIcon(lines.last, draft)
@@ -214,7 +215,8 @@ class CommentMarkers(
         val start = startEditorLine?.let { mapping.fromEditor(it) }
 
         val s = session
-        val refs = s.refs
+        // Positions need only the refs the server gave; the merge base may not be known yet (GitHub, Bitbucket Cloud).
+        val refs = s.diffRefs
         val c = ctx.change
         val map = s.lineMap(c)
         val end = DiffLineMap.Line(endLine + 1, endSide == Side.RIGHT)

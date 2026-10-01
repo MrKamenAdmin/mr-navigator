@@ -298,6 +298,15 @@ data class Checks(val state: CiState, val url: String?, val items: List<Check>) 
     companion object {
         val NONE = Checks(CiState.NONE, null, emptyList())
 
+        /** CI only decorates the card: an unreadable answer (an API error, a non-JSON page) just hides the line. */
+        fun orNone(load: () -> Checks): Checks = try {
+            load()
+        } catch (e: ApiException) {
+            NONE
+        } catch (e: Json.JsonException) {
+            NONE
+        }
+
         fun of(items: List<Check>, url: String?): Checks {
             val state = when {
                 items.any { it.state == CiState.FAILED } -> CiState.FAILED

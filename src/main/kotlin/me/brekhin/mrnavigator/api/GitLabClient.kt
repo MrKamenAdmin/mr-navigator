@@ -120,11 +120,10 @@ class GitLabClient(serverUrl: String, token: String) : HostingClient {
     }
 
     /** Draft notes published at once — one notification, like "Submit review" on the web. */
-    override fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String) {
-        val path = "${mrPath(project, mr)}/draft_notes"
-        drafts.forEach { json("POST", path, draftNote(it)) }
-        if (summary.isNotBlank()) json("POST", path, mapOf("note" to summary))
-        if (drafts.isNotEmpty() || summary.isNotBlank()) json("POST", "$path/bulk_publish", emptyMap<String, Any?>())
+    override fun submitReview(
+        project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String, published: (List<Draft>) -> Unit,
+    ) {
+        publishDrafts(mrPath(project, mr), drafts, summary, published) { method, path, body -> json(method, path, body) }
         when (verdict) {
             Verdict.APPROVE -> approve(project, mr)
             Verdict.REQUEST_CHANGES -> mutate("mergeRequestRequestChanges", project, mr)
@@ -180,6 +179,33 @@ class GitLabClient(serverUrl: String, token: String) : HostingClient {
             val default = if (squash == "always" || squash == "default_on") "squash" else "merge"
             val blocker = mr.str("detailed_merge_status")?.takeIf { it != "mergeable" }?.replace('_', ' ')
             return MergeOptions(strategies, default, canDeleteBranch = true, blocker = blocker)
+        }
+
+        /**
+         * Draft notes published at once. If anything fails before publishing, this attempt's draft notes are
+         * deleted — the next bulk_publish would send them along with a retry's.
+         */
+        internal fun publishDrafts(
+            mrPath: String, drafts: List<Draft>, summary: String, published: (List<Draft>) -> Unit,
+            call: (method: String, path: String, body: Any?) -> Any?,
+        ) {
+            if (drafts.isEmpty() && summary.isBlank()) return
+            val path = "$mrPath/draft_notes"
+            val created = ArrayList<Long>()
+            try {
+                drafts.forEach { d -> call("POST", path, draftNote(d)).obj().long("id")?.let { created += it } }
+                if (summary.isNotBlank()) call("POST", path, mapOf("note" to summary)).obj().long("id")?.let { created += it }
+                call("POST", "$path/bulk_publish", emptyMap<String, Any?>())
+            } catch (e: ApiException) {
+                for (id in created) {
+                    try {
+                        call("DELETE", "$path/$id", null)
+                    } catch (ignored: ApiException) {
+                    }
+                }
+                throw e
+            }
+            published(drafts)
         }
 
         internal fun draftNote(d: Draft): Map<String, Any?> = mapOf("note" to d.body, "position" to d.position.toJson())

@@ -1,11 +1,13 @@
 package me.brekhin.mrnavigator
 
+import kotlin.test.assertFailsWith
 import me.brekhin.mrnavigator.api.ApiException
 import me.brekhin.mrnavigator.api.BitbucketCloudClient
 import me.brekhin.mrnavigator.api.BitbucketServerClient
 import me.brekhin.mrnavigator.api.CiState
 import me.brekhin.mrnavigator.api.Connection
 import me.brekhin.mrnavigator.api.DiffRefs
+import me.brekhin.mrnavigator.api.Draft
 import me.brekhin.mrnavigator.api.HostingType
 import me.brekhin.mrnavigator.api.LinePoint
 import me.brekhin.mrnavigator.api.MergeStrategy
@@ -220,5 +222,25 @@ class BitbucketTest {
         assertEquals(listOf(MergeStrategy("no-ff", "Merge commit")), d.strategies); assertEquals("no-ff", d.defaultStrategy)
         assertEquals("Needs 2 approvals", d.blocker); assertFalse(d.canDeleteBranch)
         assertNull(BitbucketServerClient.mergeOptions(obj("{}"), null).blocker)
+    }
+
+    @Test
+    fun failedServerReviewDiscardsPendingComments() {
+        val p = map.position("b", "s", "h", "f.go", "f.go", 3, onNewSide = true)
+        val drafts = listOf(Draft("1", "x", p))
+        val calls = ArrayList<String>()
+        var published: List<Draft>? = null
+        val failing = { method: String, path: String, _: Any? ->
+            calls += "$method $path"
+            if (method == "PUT") throw ApiException("boom", 409)
+            emptyMap<String, Any?>()
+        }
+        assertFailsWith<ApiException> {
+            BitbucketServerClient.publishPending("/pr", drafts, Verdict.APPROVE, "", null, { 3 }, { published = it }, failing)
+        }
+        assertNull(published)
+        assertEquals(listOf("POST /pr/comments", "PUT /pr/review?version=3", "DELETE /pr/review"), calls)
+        BitbucketServerClient.publishPending("/pr", drafts, Verdict.APPROVE, "", null, { 3 }, { published = it }) { _, _, _ -> emptyMap<String, Any?>() }
+        assertEquals(drafts, published)
     }
 }

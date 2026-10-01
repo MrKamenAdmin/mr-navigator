@@ -7,6 +7,7 @@ import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.components.JBRadioButton
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.dsl.builder.Align
+import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.panel
 import me.brekhin.mrnavigator.api.Draft
 import me.brekhin.mrnavigator.api.Verdict
@@ -46,10 +47,20 @@ class ReviewDialog(project: Project, private val session: MrSession, private val
     override fun createCenterPanel(): JComponent = panel {
         if (drafts.isNotEmpty()) {
             row { label(msg("review.drafts", drafts.size)) }
+            val head = session.mr.diffRefs?.headSha
             for (d in drafts) {
                 val p = d.position
                 val where = "${(p.newPath ?: p.oldPath)?.substringAfterLast('/')}:${p.lineLabel()}"
-                row { comment("$where — ${Markdown.escape(d.body.lineSequence().first().take(80))}") }
+                // Written for an older version: its line may hold other code now, so it isn't sent.
+                val outdated = if (p.isOutdatedFor(head)) " <i>(${msg("review.outdated")})</i>" else ""
+                lateinit var line: Row
+                line = row {
+                    comment("$where — ${Markdown.escape(d.body.lineSequence().first().take(80))}$outdated")
+                    link(msg("review.remove")) {
+                        service.removeDraft(session, d.id)
+                        line.visible(false)
+                    }
+                }
             }
         }
         row { label(msg("review.summary")) }
