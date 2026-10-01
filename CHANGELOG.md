@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+- Reviews: keep line comments as drafts and submit them together with a summary and a verdict — Comment, Approve or Request changes. One notification on GitLab, GitHub and Bitbucket Data Center.
+- Request changes and withdraw the request; the card shows who approved and who requested changes.
+- Edit and delete your own comments.
+- CI status of the head commit in the card, and Merge with the strategies the server allows.
+- Outdated threads (GitLab, GitHub) are drawn in the gutter where their line moved, if it didn't change.
+- Comments are rendered as GitHub-flavoured Markdown.
+- GitHub and Bitbucket Cloud: the merge base is computed by git — pull requests from forks get their diff on Bitbucket Cloud.
+- Bitbucket: files with non-ASCII names in the diff.
+- A comment typed into a popup closed without sending is offered again.
+
 ## 0.3.2
 
 - The icon of a multi-line thread is on the first line of the commented code, not on the last.

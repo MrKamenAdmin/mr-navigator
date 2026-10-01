@@ -10,7 +10,7 @@
             <li>One-click checkout into a local <code>mr/&lt;number&gt;</code> branch; uncommitted changes are stashed and restored by "Go back".</li>
             <li>Diff whose right side is the real project file — Ctrl+Click, Find Usages and the rest of the navigation work.</li>
             <li>Hides generated files by suffixes you set (e.g. <code>.pb.go</code>) and folders that contain only such files.</li>
-            <li>Comments: line and multi-line threads, replies, resolve, suggestions, general comments; approve.</li>
+            <li>Comments: line and multi-line threads, replies, resolve, suggestions, general comments; drafts submitted as one review; edit and delete your own; approve, request changes, merge, CI status.</li>
             <li>Files viewed marks and +/− counts; discussion list that opens the diff at the commented line.</li>
         </ul>
         <p>Works with gitlab.com and self-hosted GitLab, github.com and GitHub Enterprise Server, Bitbucket Cloud and Bitbucket Data Center,

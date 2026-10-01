@@ -20,11 +20,16 @@ The built-in integrations show the diff from revisions, so Ctrl+Click, Find Usag
   - **+** on the hovered line, or right click → **Comment on Line / Selection**, starts a new thread;
   - **multi-line comments**: select lines and click **+** — in the unified view a range can go from a removed line to an added one;
   - **suggestions** (GitLab, GitHub): **Suggest a change** inserts a `suggestion` block with the current code of the line(s); on GitLab, **Apply suggestion** under a comment commits it to the request branch, like the button on the web;
+  - **reviews**: **Add to Review** keeps a line comment as a draft (an edit icon in the gutter); **Review (N)…** sends the drafts at once with a summary and a verdict — Comment, Approve or Request changes. GitLab, GitHub and Bitbucket Data Center send one notification for the whole review;
+  - **edit and delete** your own comments; comments are rendered as GitHub-flavoured Markdown;
+  - a comment typed into a popup closed without sending is offered again when the popup reopens;
   - the **Discussion** tab lists all threads, open ones first; a double click on a line thread opens the diff at that line.
 - **Files tab:** +/− line counts per file, *viewed* marks (set automatically when a file is opened, Space toggles, reset by new commits).
 - **Description** rendered as GitHub-flavoured Markdown: headings, tables, task lists, quotes.
 - **Several repositories in one folder:** a repository switcher appears when the opened folder contains several repositories.
-- **Approve / revoke approval**, open in browser.
+- **Approve / revoke approval, Request changes / withdraw the request**; the card shows who approved and who requested changes.
+- **CI status** of the head commit in the card (a click opens it, the tooltip lists the checks), and **Merge…** with the strategies the server allows and an option to delete the source branch.
+- Open in browser.
 - **English and Russian** interface.
 - The IDE's proxy and certificate settings apply.
 
@@ -95,6 +100,7 @@ Without checkout the diff still opens, but its right side is a revision rather t
 | `git/GitCli.kt`, `git/RepoScanner.kt` | git from the command line: fetch the request's head (`refs/merge-requests/<iid>/head`, `refs/pull/<n>/head`, `refs/pull-requests/<id>/from`, or the source branch on Bitbucket Cloud), stash, checkout, `git show`; finding repositories in the project folder. The Git4Idea plugin API is not used — it is internal and has been split into modules since 2025.3 |
 | `core/DiffLineMap.kt` | maps lines between the old and new versions using the hunks; builds comment positions and `line_range` / `line_code` for multi-line comments, counting lines the same way as GitLab's `lib/gitlab/diff/parser.rb` |
 | `core/UnifiedDiff.kt` | splits Bitbucket's raw diff into files and hunks |
+| `core/Drafts.kt`, `ui/ReviewDialog.kt`, `ui/MergeDialog.kt` | drafts of a review kept between IDE restarts; submitting a review; merging |
 | `core/HiddenFiles.kt`, `ui/ChangesTree.kt` | hiding files; folders are built only from shown files, so folders with nothing but hidden files never appear |
 | `diff/MrDiffOpener.kt` | diff chain: base revision on the left, the local file on the right |
 | `diff/MrDiffExtension.kt`, `diff/CommentMarkers.kt` | thread icons, **+**, ranges and suggestions in side-by-side, unified and one-sided diffs |
@@ -104,7 +110,9 @@ Without checkout the diff still opens, but its right side is a revision rather t
 
 ## Limitations
 
-- Threads that became outdated after new commits are not drawn in the gutter; they are listed on the Discussion tab, marked as outdated.
+- Outdated threads (written for an older version) are drawn in the gutter only on GitLab and GitHub, when the commit they were written on is in the local repository and their line didn't change; all of them are listed on the Discussion tab, marked as outdated.
+- Bitbucket Cloud has no API for batched reviews: the comments of a review are sent one by one, with a notification each.
+- Merge: no auto-merge or merge queue; Bitbucket Data Center can't delete the source branch from the plugin.
 - No line comments for files whose diff the server doesn't return because of their size.
 - GitHub and Bitbucket accept comments only on lines of the diff hunks; the **+** is not shown elsewhere.
 - Suggestions: inserting works on GitLab and GitHub, applying only on GitLab (GitHub and Bitbucket have no API for it). Suggestions are possible only on lines of the new version. An applied suggestion is a new commit on the server: refresh the request and check it out again to get it locally.
