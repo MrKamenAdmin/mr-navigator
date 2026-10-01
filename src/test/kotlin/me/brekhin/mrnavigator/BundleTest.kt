@@ -89,10 +89,17 @@ class BundleTest {
 
     @Test
     fun everyKeyUsedInCodeExists() {
-        val call = Regex("""msg\("([a-zA-Z0-9.]+)"""")
-        val missing = java.io.File("src/main/kotlin").walk().filter { it.extension == "kt" }
-            .flatMap { f -> call.findAll(f.readText()).map { it.groupValues[1] } }
-            .filter { it !in en.stringPropertyNames() }.toSet()
-        assertEquals(emptySet(), missing)
+        val code = java.io.File("src/main/kotlin").walk().filter { it.extension == "kt" }.flatMap { it.readLines() }.toList()
+        // Every key-shaped literal on a line that calls msg() — so msg(if (…) "a" else "b") counts too.
+        val key = Regex(""""([a-z][a-zA-Z0-9]*(?:\.[a-zA-Z0-9]+)+)"""")
+        // MrBundle.plural(n, "files") reads files.one / files.few / files.many.
+        val plural = Regex("""plural\([^;]*?,\s*"([a-zA-Z0-9.]+)"\)""")
+        val pluralBases = code.flatMap { line -> plural.findAll(line).map { it.groupValues[1] } }.toSet()
+        val plurals = pluralBases.flatMap { k -> listOf("one", "few", "many").map { "$k.$it" } }
+        val used = code.filter { "msg(" in it }.flatMap { line -> key.findAll(line).map { it.groupValues[1] } } - pluralBases
+        // Built from a template by the language combo of the settings.
+        val languages = listOf("auto", "en", "ru").map { "settings.language.$it" }
+        assertTrue(pluralBases.isNotEmpty())
+        assertEquals(emptySet(), (used + plurals + languages).toSet() - en.stringPropertyNames())
     }
 }
