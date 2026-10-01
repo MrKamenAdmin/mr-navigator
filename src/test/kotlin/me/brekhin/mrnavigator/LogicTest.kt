@@ -298,6 +298,11 @@ class LogicTest {
         assertEquals("Bad diff", Http.errorMessage("""{"type":"error","error":{"message":"Bad diff"}}""")) // Bitbucket Cloud
         assertEquals("No such PR", Http.errorMessage("""{"errors":[{"context":null,"message":"No such PR"}]}""")) // Bitbucket DC
         assertEquals("<html>oops</html>", Http.errorMessage("<html>oops</html>"))
+        // GitHub 422: the reason is in errors[], as plain strings or {message} objects.
+        assertEquals("Validation Failed: Can not approve your own pull request",
+            Http.errorMessage("""{"message":"Validation Failed","errors":["Can not approve your own pull request"]}"""))
+        assertEquals("Unprocessable Entity: line could not be resolved",
+            Http.errorMessage("""{"message":"Unprocessable Entity","errors":[{"resource":"PullRequestReviewComment","field":"line","message":"line could not be resolved"}]}"""))
         assertNull(Http.errorMessage(""))
         assertEquals("Basic dTpw", basicOrBearer("p", "u"))
         assertEquals("Bearer t", basicOrBearer("t", null))

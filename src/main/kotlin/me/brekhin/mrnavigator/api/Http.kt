@@ -72,15 +72,21 @@ class Http(private val provider: String, private val auth: (URLConnection) -> Un
     }
 
     companion object {
-        /** The server's own explanation: GitLab and GitHub {message}, {error}, Bitbucket Cloud {error:{message}}, DC {errors:[{message}]}. */
+        /**
+         * The server's own explanation: GitLab and GitHub {message}, {error}, Bitbucket Cloud {error:{message}},
+         * DC {errors:[{message}]}; GitHub puts the reason of a 422 into errors[] next to a generic message.
+         */
         internal fun errorMessage(body: String?): String? {
             if (body.isNullOrBlank()) return null
             return try {
                 val m = Json.parse(body).obj()
                 val error = m["error"]
-                val text = m["message"] ?: (error as? Map<*, *>)?.get("message") ?: error
-                    ?: m.a("errors").firstOrNull()?.obj()?.get("message")
-                text?.let { if (it is String) it else Json.write(it) } ?: body.take(300)
+                val text = (m["message"] ?: (error as? Map<*, *>)?.get("message") ?: error)?.let { if (it is String) it else Json.write(it) }
+                val details = m.a("errors").mapNotNull { e -> (e as? String) ?: e.obj()["message"] as? String }.joinToString("; ")
+                when {
+                    text != null && details.isNotEmpty() -> "$text: $details"
+                    else -> text ?: details.ifEmpty { body.take(300) }
+                }
             } catch (e: Exception) {
                 body.take(300)
             }
