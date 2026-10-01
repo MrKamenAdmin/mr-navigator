@@ -1,5 +1,6 @@
 package me.brekhin.mrnavigator.api
 
+import com.intellij.openapi.progress.ProgressManager
 import me.brekhin.mrnavigator.core.UnifiedDiff
 import me.brekhin.mrnavigator.util.a
 import me.brekhin.mrnavigator.util.bool
@@ -106,7 +107,42 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
         send("DELETE", "${pr(project, mr)}/request-changes", null)
     }
 
+    override fun checks(project: ProjectRef, mr: MergeRequest): Checks = statuses(paged("${pr(project, mr)}/statuses"), mr.webUrl)
+
+    override fun mergeOptions(project: ProjectRef, mr: MergeRequest): MergeOptions = mergeOptions(get(pr(project, mr)))
+
+    /** A long merge answers 202 with a task to poll; after a minute the user is sent to the browser. */
+    override fun merge(project: ProjectRef, mr: MergeRequest, strategy: String?, deleteBranch: Boolean) {
+        val payload = linkedMapOf<String, Any?>("close_source_branch" to deleteBranch)
+        strategy?.let { payload["merge_strategy"] = it }
+        val task = http.call("POST", api + "${pr(project, mr)}/merge", payload).header("Location") ?: return
+        repeat(60) {
+            Thread.sleep(1000)
+            ProgressManager.checkCanceled()
+            if (taskDone(http.call("GET", task).json().obj())) return
+        }
+        throw ApiException(msg("merge.stillRunning", "#${mr.iid}"))
+    }
+
     companion object {
+        internal fun statuses(items: List<Map<String, Any?>>, url: String?): Checks = Checks.of(items.map {
+            val state = when (it.str("state")) {
+                "SUCCESSFUL" -> CiState.SUCCESS
+                "INPROGRESS" -> CiState.RUNNING
+                else -> CiState.FAILED
+            }
+            Check(it.str("name") ?: it.str("key") ?: "?", state, it.str("url"))
+        }, url)
+
+        internal fun mergeOptions(pr: Map<String, Any?>): MergeOptions {
+            val branch = pr.o("destination")?.o("branch")
+            val strategies = branch?.a("merge_strategies").orEmpty().mapNotNull { it as? String }.map { MergeStrategy.of(it) }
+            return MergeOptions(strategies, branch?.str("default_merge_strategy"), canDeleteBranch = true, blocker = null)
+        }
+
+        /** A merge task is done at SUCCESS; a failed one comes as an HTTP error of the poll. */
+        internal fun taskDone(task: Map<String, Any?>): Boolean = task.str("task_status") == "SUCCESS"
+
         internal fun participants(ps: List<Map<String, Any?>>): Reviews {
             fun who(p: Map<String, Any?>) = p.o("user")?.str("nickname")
             return Reviews(ps.filter { it.bool("approved") }.mapNotNull(::who), ps.filter { it.str("state") == "changes_requested" }.mapNotNull(::who))

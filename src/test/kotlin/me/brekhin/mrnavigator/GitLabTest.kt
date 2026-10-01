@@ -1,5 +1,8 @@
 package me.brekhin.mrnavigator
 
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import me.brekhin.mrnavigator.api.CiState
 import me.brekhin.mrnavigator.api.Draft
 import me.brekhin.mrnavigator.api.GitLabClient
 import me.brekhin.mrnavigator.core.DiffLineMap
@@ -19,5 +22,18 @@ class GitLabTest {
         val reviewers = listOf("""{"user":{"username":"a"},"state":"requested_changes"}""", """{"user":{"username":"b"},"state":"reviewed"}""")
             .map { obj(it) }
         assertEquals(listOf("a"), GitLabClient.withChangesRequested(reviewers))
+    }
+
+    @Test
+    fun ciAndMerge() {
+        val p = GitLabClient.pipeline(obj("""{"id":5,"status":"running","web_url":"https://g/p/5"}"""))
+        assertEquals(CiState.RUNNING, p.state); assertEquals("https://g/p/5", p.url)
+        assertEquals(CiState.FAILED, GitLabClient.pipeline(obj("""{"status":"failed"}""")).state)
+        assertEquals(CiState.NONE, GitLabClient.pipeline(obj("""{"status":"skipped"}""")).state)
+        val o = GitLabClient.mergeOptions(obj("""{"detailed_merge_status":"not_approved"}"""), obj("""{"squash_option":"default_on"}"""))
+        assertEquals(listOf("merge", "squash"), o.strategies.map { it.id }); assertEquals("squash", o.defaultStrategy)
+        assertEquals("not approved", o.blocker); assertTrue(o.canDeleteBranch)
+        val ok = GitLabClient.mergeOptions(obj("""{"detailed_merge_status":"mergeable"}"""), obj("""{"squash_option":"never"}"""))
+        assertNull(ok.blocker); assertEquals(listOf("merge"), ok.strategies.map { it.id })
     }
 }

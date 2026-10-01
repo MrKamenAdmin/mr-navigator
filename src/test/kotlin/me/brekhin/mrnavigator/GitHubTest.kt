@@ -1,6 +1,7 @@
 package me.brekhin.mrnavigator
 
 import me.brekhin.mrnavigator.api.ApiException
+import me.brekhin.mrnavigator.api.CiState
 import me.brekhin.mrnavigator.api.DiffRefs
 import me.brekhin.mrnavigator.api.Draft
 import me.brekhin.mrnavigator.api.GitHubClient
@@ -134,5 +135,22 @@ class GitHubTest {
         assertTrue(map.inHunk(2, onNewSide = true)); assertTrue(map.inHunk(5, onNewSide = true))
         assertFalse(map.inHunk(1, onNewSide = true)); assertFalse(map.inHunk(6, onNewSide = true))
         assertTrue(map.inHunk(4, onNewSide = false)); assertFalse(map.inHunk(5, onNewSide = false))
+    }
+
+    @Test
+    fun ciAndMerge() {
+        val runs = listOf("""{"name":"build","status":"completed","conclusion":"success","html_url":"u1"}""",
+            """{"name":"lint","status":"in_progress","conclusion":null}""").map { obj(it) }
+        val statuses = listOf("""{"context":"ci/x","state":"failure","target_url":"u2"}""").map { obj(it) }
+        val checks = GitHubClient.checksOf(runs, statuses, "https://github.com/o/r/pull/1/checks")
+        assertEquals(CiState.FAILED, checks.state); assertEquals(listOf("build", "lint", "ci/x"), checks.items.map { it.name })
+        assertEquals(CiState.RUNNING, checks.items[1].state)
+        val pr = obj("""{"mergeable":false,"mergeable_state":"dirty","head":{"repo":{"full_name":"o/r"}},"base":{"repo":{"full_name":"o/r"}}}""")
+        val o = GitHubClient.mergeOptions(pr, obj("""{"allow_merge_commit":false,"allow_squash_merge":true,"allow_rebase_merge":true}"""))
+        assertEquals(listOf("squash", "rebase"), o.strategies.map { it.id }); assertEquals("dirty", o.blocker); assertTrue(o.canDeleteBranch)
+        // Without push access GitHub hides the allow_* flags: offer all, the server decides.
+        val fork = obj("""{"mergeable":true,"head":{"repo":{"full_name":"me/r"}},"base":{"repo":{"full_name":"o/r"}}}""")
+        val f = GitHubClient.mergeOptions(fork, obj("{}"))
+        assertEquals(listOf("merge", "squash", "rebase"), f.strategies.map { it.id }); assertFalse(f.canDeleteBranch); assertNull(f.blocker)
     }
 }

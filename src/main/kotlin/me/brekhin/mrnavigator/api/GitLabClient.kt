@@ -2,6 +2,7 @@ package me.brekhin.mrnavigator.api
 
 import me.brekhin.mrnavigator.util.a
 import me.brekhin.mrnavigator.util.arr
+import me.brekhin.mrnavigator.util.long
 import me.brekhin.mrnavigator.util.msg
 import me.brekhin.mrnavigator.util.o
 import me.brekhin.mrnavigator.util.obj
@@ -143,7 +144,44 @@ class GitLabClient(serverUrl: String, token: String) : HostingClient {
         if (errors.isNotEmpty()) throw ApiException("GitLab: " + errors.joinToString("; "))
     }
 
+    override fun checks(project: ProjectRef, mr: MergeRequest): Checks =
+        json("GET", "${proj(project)}/merge_requests/${mr.iid}").obj().o("head_pipeline")?.let { pipeline(it) } ?: Checks.NONE
+
+    override fun mergeOptions(project: ProjectRef, mr: MergeRequest): MergeOptions =
+        mergeOptions(json("GET", "${proj(project)}/merge_requests/${mr.iid}").obj(), json("GET", proj(project)).obj())
+
+    override fun merge(project: ProjectRef, mr: MergeRequest, strategy: String?, deleteBranch: Boolean) {
+        val payload = linkedMapOf<String, Any?>("squash" to (strategy == "squash"), "should_remove_source_branch" to deleteBranch)
+        mr.diffRefs?.headSha?.let { payload["sha"] = it }
+        json("PUT", "${mrPath(project, mr)}/merge", payload)
+    }
+
     companion object {
+        internal fun ciState(status: String?): CiState = when (status) {
+            "success" -> CiState.SUCCESS
+            "failed", "canceled", "canceling" -> CiState.FAILED
+            null, "skipped" -> CiState.NONE
+            else -> CiState.RUNNING
+        }
+
+        internal fun pipeline(p: Map<String, Any?>): Checks {
+            val url = p.str("web_url")
+            return Checks.of(listOf(Check("Pipeline #${p.long("id") ?: ""}", ciState(p.str("status")), url)), url)
+        }
+
+        /** Squash per the project's setting; the merge method itself (merge / rebase / ff) is the project's too. */
+        internal fun mergeOptions(mr: Map<String, Any?>, project: Map<String, Any?>): MergeOptions {
+            val squash = project.str("squash_option") ?: "default_off"
+            val strategies = when (squash) {
+                "never" -> listOf("merge")
+                "always" -> listOf("squash")
+                else -> listOf("merge", "squash")
+            }.map { MergeStrategy.of(it) }
+            val default = if (squash == "always" || squash == "default_on") "squash" else "merge"
+            val blocker = mr.str("detailed_merge_status")?.takeIf { it != "mergeable" }?.replace('_', ' ')
+            return MergeOptions(strategies, default, canDeleteBranch = true, blocker = blocker)
+        }
+
         internal fun draftNote(d: Draft): Map<String, Any?> = mapOf("note" to d.body, "position" to d.position.toJson())
 
         internal fun withChangesRequested(reviewers: List<Map<String, Any?>>): List<String> =

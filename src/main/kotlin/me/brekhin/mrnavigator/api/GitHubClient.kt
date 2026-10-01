@@ -129,6 +129,24 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
         send("POST", "${pull(project, mr)}/reviews", reviewPayload(drafts, verdict, summary, mr.diffRefs?.headSha ?: mr.sha))
     }
 
+    override fun checks(project: ProjectRef, mr: MergeRequest): Checks {
+        val sha = mr.diffRefs?.headSha ?: mr.sha ?: return Checks.NONE
+        val runs = get("${repo(project)}/commits/$sha/check-runs?per_page=100").obj().a("check_runs").map { it.obj() }
+        val statuses = get("${repo(project)}/commits/$sha/status").obj().a("statuses").map { it.obj() }
+        return checksOf(runs, statuses, "${mr.webUrl}/checks")
+    }
+
+    override fun mergeOptions(project: ProjectRef, mr: MergeRequest): MergeOptions =
+        mergeOptions(get(pull(project, mr)).obj(), get(repo(project)).obj())
+
+    override fun merge(project: ProjectRef, mr: MergeRequest, strategy: String?, deleteBranch: Boolean) {
+        val payload = linkedMapOf<String, Any?>()
+        mr.sha?.let { payload["sha"] = it }
+        strategy?.let { payload["merge_method"] = it }
+        send("PUT", "${pull(project, mr)}/merge", payload)
+        if (deleteBranch) http.call("DELETE", api + "${repo(project)}/git/refs/heads/${mr.sourceBranch}")
+    }
+
     companion object {
         private const val GITHUB_API = "https://api.github.com"
         /** Prefix of the ids of general (issue) comments — they are not review threads. */
@@ -260,6 +278,39 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
                 payload["start_side"] = if (s.newLine != null) "RIGHT" else "LEFT"
             }
             return payload
+        }
+
+        internal fun checksOf(runs: List<Map<String, Any?>>, statuses: List<Map<String, Any?>>, url: String?): Checks = Checks.of(
+            runs.map { Check(it.str("name") ?: "?", runState(it.str("status"), it.str("conclusion")), it.str("html_url")) } +
+                statuses.map { Check(it.str("context") ?: "?", statusState(it.str("state")), it.str("target_url")) },
+            url,
+        )
+
+        private fun runState(status: String?, conclusion: String?) = when {
+            status != "completed" -> CiState.RUNNING
+            conclusion == "success" || conclusion == "neutral" || conclusion == "skipped" -> CiState.SUCCESS
+            else -> CiState.FAILED
+        }
+
+        private fun statusState(state: String?) = when (state) {
+            "success" -> CiState.SUCCESS
+            "pending" -> CiState.RUNNING
+            else -> CiState.FAILED
+        }
+
+        internal fun mergeOptions(pr: Map<String, Any?>, repo: Map<String, Any?>): MergeOptions {
+            // The allow_* flags are hidden without push access: then offer all and let the server decide.
+            fun allowed(key: String) = repo[key] as? Boolean ?: true
+            val strategies = listOfNotNull(
+                "merge".takeIf { allowed("allow_merge_commit") },
+                "squash".takeIf { allowed("allow_squash_merge") },
+                "rebase".takeIf { allowed("allow_rebase_merge") },
+            ).map { MergeStrategy.of(it) }
+            val head = pr.o("head")?.o("repo")?.str("full_name")
+            val sameRepo = head != null && head == pr.o("base")?.o("repo")?.str("full_name")
+            val state = pr.str("mergeable_state")
+            val blocked = pr["mergeable"] == false || state == "dirty" || state == "blocked"
+            return MergeOptions(strategies, strategies.firstOrNull()?.id, sameRepo, if (blocked) state ?: "not mergeable" else null)
         }
 
         /** The latest decisive review of each user (comment-only reviews don't change the state). */

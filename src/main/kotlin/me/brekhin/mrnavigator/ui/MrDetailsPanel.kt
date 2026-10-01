@@ -1,10 +1,12 @@
 package me.brekhin.mrnavigator.ui
 
 import com.intellij.icons.AllIcons
+import java.awt.Cursor
 import javax.swing.ListCellRenderer
 import java.awt.event.KeyEvent
 import java.awt.event.KeyAdapter
 import java.awt.Component
+import me.brekhin.mrnavigator.api.CiState
 import me.brekhin.mrnavigator.api.Verdict
 import me.brekhin.mrnavigator.util.TimeAgo
 import com.intellij.ui.SimpleColoredComponent
@@ -65,6 +67,15 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
     private val approveButton = JButton("Approve")
     private val requestChangesButton = JButton()
     private val reviewButton = JButton(AllIcons.Actions.Edit)
+    private val mergeButton = JButton(msg("details.merge"))
+    private val ci = JBLabel().apply {
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                session?.checks?.url?.let { BrowserUtil.browse(it) }
+            }
+        })
+    }
     private val browserButton = JButton(AllIcons.General.Web).apply { toolTipText = msg("openInBrowser") }
     private val refreshButton = JButton(AllIcons.Actions.Refresh)
 
@@ -102,14 +113,14 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         val header = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = JBUI.Borders.empty(8, 8, 4, 8)
-            add(title); add(meta); add(checkoutState)
+            add(title); add(meta); add(ci); add(checkoutState)
             // WrapLayout moves buttons to the next row when the tool window is narrow (FlowLayout would clip them).
             add(JPanel(WrapLayout(FlowLayout.LEFT, JBUI.scale(4), JBUI.scale(4))).apply {
                 add(checkoutButton); add(backButton); add(approveButton); add(requestChangesButton); add(reviewButton)
-                add(browserButton); add(refreshButton)
+                add(mergeButton); add(browserButton); add(refreshButton)
                 alignmentX = LEFT_ALIGNMENT
             })
-            listOf(title, meta, checkoutState).forEach { it.alignmentX = LEFT_ALIGNMENT }
+            listOf(title, meta, ci, checkoutState).forEach { it.alignmentX = LEFT_ALIGNMENT }
         }
 
         tree.isViewed = { change -> session?.viewed?.contains(change.displayPath) == true }
@@ -158,6 +169,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
             if (hasRequestedChanges(s)) withdrawChanges(s) else submitReview(s, Verdict.REQUEST_CHANGES)
         }
         reviewButton.addActionListener { session?.let { submitReview(it, Verdict.COMMENT) } }
+        mergeButton.addActionListener { merge() }
         browserButton.addActionListener { session?.let { BrowserUtil.browse(it.mr.webUrl) } }
         refreshButton.addActionListener { session?.let { load(it.mr, it.type) } }
         newCommentButton.addActionListener {
@@ -227,6 +239,24 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         val drafts = service.drafts(s).size
         reviewButton.isVisible = drafts > 0
         reviewButton.text = msg("details.review", drafts)
+        val checks = s.checks
+        ci.isVisible = checks.state != CiState.NONE
+        ci.icon = when (checks.state) {
+            CiState.SUCCESS -> AllIcons.General.InspectionsOK
+            CiState.FAILED -> AllIcons.General.Error
+            else -> AllIcons.Actions.Execute
+        }
+        if (checks.state != CiState.NONE) ci.text = msg("details.ci.${checks.state.name}")
+        ci.toolTipText = checks.items.joinToString("<br>", "<html>", "</html>") { c ->
+            val mark = when (c.state) {
+                CiState.SUCCESS -> "✓"
+                CiState.FAILED -> "✗"
+                CiState.RUNNING -> "…"
+                CiState.NONE -> "·"
+            }
+            "$mark ${Markdown.escape(c.name)}"
+        }
+        mergeButton.isVisible = mr.state == "opened" || mr.state == "open"
         updateFilesSummary()
         tree.repaint()
         renderThreads()
@@ -386,6 +416,21 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         val summary = dialog.summary
         Bg.run(project, msg("review.task"), work = { service.submitReview(s, chosen, summary) },
             onError = { Notify.error(project, msg("review.failed"), it) }) { Notify.info(project, msg("review.sent", s.ref)) }
+    }
+
+    private fun merge() {
+        val s = session ?: return
+        Bg.run(project, msg("merge.loading", s.ref), work = { service.mergeOptions(s) }) { options ->
+            val dialog = MergeDialog(project, s, options)
+            if (!dialog.showAndGet()) return@run
+            val strategy = dialog.strategy
+            val deleteBranch = dialog.deleteBranch
+            Bg.run(project, msg("merge.task", s.ref), work = { service.merge(s, strategy, deleteBranch) },
+                onError = { Notify.error(project, msg("merge.failed"), it) }) {
+                Notify.info(project, msg("merge.done", s.ref, s.mr.targetBranch))
+                load(s.mr, s.type)
+            }
+        }
     }
 
     private fun withdrawChanges(s: MrSession) {

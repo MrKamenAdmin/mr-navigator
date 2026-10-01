@@ -3,10 +3,12 @@ package me.brekhin.mrnavigator
 import me.brekhin.mrnavigator.api.ApiException
 import me.brekhin.mrnavigator.api.BitbucketCloudClient
 import me.brekhin.mrnavigator.api.BitbucketServerClient
+import me.brekhin.mrnavigator.api.CiState
 import me.brekhin.mrnavigator.api.Connection
 import me.brekhin.mrnavigator.api.DiffRefs
 import me.brekhin.mrnavigator.api.HostingType
 import me.brekhin.mrnavigator.api.LinePoint
+import me.brekhin.mrnavigator.api.MergeStrategy
 import me.brekhin.mrnavigator.api.MrFilter
 import me.brekhin.mrnavigator.api.Reviews
 import me.brekhin.mrnavigator.api.Verdict
@@ -202,5 +204,21 @@ class BitbucketTest {
         assertEquals(mapOf("commentText" to "ok", "participantStatus" to "APPROVED"), BitbucketServerClient.reviewPayload(Verdict.APPROVE, "ok"))
         assertEquals(mapOf("participantStatus" to "NEEDS_WORK"), BitbucketServerClient.reviewPayload(Verdict.REQUEST_CHANGES, ""))
         assertEquals(emptyMap(), BitbucketServerClient.reviewPayload(Verdict.COMMENT, " "))
+    }
+
+    @Test
+    fun ciAndMerge() {
+        val cloud = BitbucketCloudClient.statuses(listOf("""{"name":"build","state":"SUCCESSFUL","url":"u"}""", """{"key":"k","state":"STOPPED"}""").map { obj(it) }, "pr")
+        assertEquals(CiState.FAILED, cloud.state); assertEquals(listOf("build", "k"), cloud.items.map { it.name })
+        val o = BitbucketCloudClient.mergeOptions(obj("""{"destination":{"branch":{"merge_strategies":["merge_commit","squash"],"default_merge_strategy":"squash"}}}"""))
+        assertEquals(listOf("merge_commit", "squash"), o.strategies.map { it.id }); assertEquals("squash", o.defaultStrategy)
+        assertTrue(BitbucketCloudClient.taskDone(obj("""{"task_status":"SUCCESS"}"""))); assertFalse(BitbucketCloudClient.taskDone(obj("""{"task_status":"PENDING"}""")))
+        val dc = BitbucketServerClient.builds(listOf("""{"name":"b","state":"INPROGRESS"}""").map { obj(it) }, "pr")
+        assertEquals(CiState.RUNNING, dc.state)
+        val config = obj("""{"defaultStrategy":{"id":"no-ff"},"strategies":[{"id":"no-ff","name":"Merge commit","enabled":true},{"id":"squash","name":"Squash","enabled":false}]}""")
+        val d = BitbucketServerClient.mergeOptions(obj("""{"vetoes":[{"summaryMessage":"Needs 2 approvals"}]}"""), config)
+        assertEquals(listOf(MergeStrategy("no-ff", "Merge commit")), d.strategies); assertEquals("no-ff", d.defaultStrategy)
+        assertEquals("Needs 2 approvals", d.blocker); assertFalse(d.canDeleteBranch)
+        assertNull(BitbucketServerClient.mergeOptions(obj("{}"), null).blocker)
     }
 }

@@ -288,3 +288,36 @@ data class Reviews(val approved: List<String>, val changesRequested: List<String
 
 /** A line comment kept in the IDE until the review is submitted. */
 data class Draft(val id: String, val body: String, val position: Position)
+
+enum class CiState { SUCCESS, FAILED, RUNNING, NONE }
+
+data class Check(val name: String, val state: CiState, val url: String?)
+
+/** CI of the head commit; [state] folds the checks: a failure wins, then a running one. */
+data class Checks(val state: CiState, val url: String?, val items: List<Check>) {
+    companion object {
+        val NONE = Checks(CiState.NONE, null, emptyList())
+
+        fun of(items: List<Check>, url: String?): Checks {
+            val state = when {
+                items.any { it.state == CiState.FAILED } -> CiState.FAILED
+                items.any { it.state == CiState.RUNNING } -> CiState.RUNNING
+                items.any { it.state == CiState.SUCCESS } -> CiState.SUCCESS
+                else -> CiState.NONE
+            }
+            return Checks(state, url, items)
+        }
+    }
+}
+
+data class MergeStrategy(val id: String, val title: String) {
+    override fun toString() = title
+
+    companion object {
+        /** "merge_commit" → "Merge commit", for servers that give only ids. */
+        fun of(id: String) = MergeStrategy(id, id.replace('_', ' ').replaceFirstChar { it.uppercase() })
+    }
+}
+
+/** How the request can be merged; [blocker] — the server's reason it can't be now, if any. */
+data class MergeOptions(val strategies: List<MergeStrategy>, val defaultStrategy: String?, val canDeleteBranch: Boolean, val blocker: String?)

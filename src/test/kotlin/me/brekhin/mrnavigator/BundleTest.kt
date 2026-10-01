@@ -84,6 +84,8 @@ class BundleTest {
                 MrBundle.message("connection.hint.${t.name}")
                 t.usernameLabel?.let { MrBundle.message(it) }
             }
+            me.brekhin.mrnavigator.api.CiState.entries.filter { it != me.brekhin.mrnavigator.api.CiState.NONE }
+                .forEach { MrBundle.message("details.ci.${it.name}") }
         }
     }
 

@@ -85,6 +85,11 @@ interface HostingClient {
     /** Publishes [drafts] and [summary] with [verdict] — with one notification where the server can. */
     fun submitReview(project: ProjectRef, mr: MergeRequest, drafts: List<Draft>, verdict: Verdict, summary: String)
     fun withdrawChanges(project: ProjectRef, mr: MergeRequest)
+    /** CI of the head commit. */
+    fun checks(project: ProjectRef, mr: MergeRequest): Checks
+    fun mergeOptions(project: ProjectRef, mr: MergeRequest): MergeOptions
+    /** [strategy] — an id from [mergeOptions], null for the server's default. */
+    fun merge(project: ProjectRef, mr: MergeRequest, strategy: String?, deleteBranch: Boolean)
     /** GitLab only — the others have no API for it, and their notes carry no suggestions. */
     fun applySuggestions(ids: List<Long>): Unit = throw UnsupportedOperationException()
 }

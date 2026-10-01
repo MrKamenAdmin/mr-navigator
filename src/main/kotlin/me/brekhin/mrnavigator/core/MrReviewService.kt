@@ -38,6 +38,9 @@ class MrSession(
 
     fun isOutdated(d: Discussion): Boolean = d.position?.isOutdatedFor(mr.diffRefs?.headSha) == true
 
+    /** CI of the head commit, loaded with the session. */
+    @Volatile var checks: Checks = Checks.NONE
+
     /** Where outdated threads sit in the current code (thread id → line of the new version); see MrReviewService.relocate. */
     val relocated = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
@@ -207,6 +210,11 @@ class MrReviewService(private val ideProject: Project) {
         val discussions = client.discussions(repo.project, full)
         val reviews = client.reviews(repo.project, full)
         val s = MrSession(repo.project, repo.connection, GitCli(repo.root), repo.remoteName, full, changes, discussions, reviews)
+        s.checks = try {
+            client.checks(repo.project, full)
+        } catch (e: ApiException) {
+            Checks.NONE
+        }
         loadViewed(s)
         session = s
         fireChanged()
@@ -432,6 +440,10 @@ class MrReviewService(private val ideProject: Project) {
         refreshDiscussions(s)
         refreshReviews(s)
     }
+
+    fun mergeOptions(s: MrSession): MergeOptions = client(s.connection).mergeOptions(s.project, s.mr)
+
+    fun merge(s: MrSession, strategy: String?, deleteBranch: Boolean) = client(s.connection).merge(s.project, s.mr, strategy, deleteBranch)
 
     fun withdrawChanges(s: MrSession) {
         client(s.connection).withdrawChanges(s.project, s.mr)

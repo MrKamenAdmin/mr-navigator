@@ -14,7 +14,8 @@ import java.time.Instant
 
 /** Bitbucket Data Center (Server) REST 1.0. With [username] the HTTP access token goes with Basic auth, otherwise as Bearer. */
 class BitbucketServerClient(serverUrl: String, token: String, username: String?) : HostingClient {
-    private val api = serverUrl.trimEnd('/') + "/rest/api/latest"
+    private val root = serverUrl.trimEnd('/')
+    private val api = "$root/rest/api/latest"
     private val http = Http("Bitbucket") { it.setRequestProperty("Authorization", basicOrBearer(token, username)) }
 
     private fun get(path: String): Map<String, Any?> = http.call("GET", api + path).json().obj()
@@ -123,7 +124,53 @@ class BitbucketServerClient(serverUrl: String, token: String, username: String?)
 
     override fun withdrawChanges(project: ProjectRef, mr: MergeRequest) = setStatus(project, mr, "UNAPPROVED")
 
+    override fun checks(project: ProjectRef, mr: MergeRequest): Checks {
+        val sha = mr.sha ?: return Checks.NONE
+        // Deprecated since 7.14, yet still the only call that lists all builds of a commit.
+        val builds = http.call("GET", "$root/rest/build-status/latest/commits/$sha?limit=100").json().obj().a("values").map { it.obj() }
+        return builds(builds, mr.webUrl)
+    }
+
+    override fun mergeOptions(project: ProjectRef, mr: MergeRequest): MergeOptions {
+        val check = get("${pr(project, mr)}/merge")
+        val config = try {
+            get("${repo(project)}/settings/pull-requests").o("mergeConfig")
+        } catch (e: ApiException) {
+            null
+        }
+        return mergeOptions(check, config)
+    }
+
+    override fun merge(project: ProjectRef, mr: MergeRequest, strategy: String?, deleteBranch: Boolean) {
+        val path = pr(project, mr)
+        val payload = linkedMapOf<String, Any?>()
+        strategy?.let { payload["strategyId"] = it }
+        send("POST", "$path/merge?version=${get(path).int("version") ?: 0}", payload)
+    }
+
     companion object {
+        internal fun builds(items: List<Map<String, Any?>>, url: String?): Checks = Checks.of(items.map {
+            val state = when (it.str("state")) {
+                "SUCCESSFUL" -> CiState.SUCCESS
+                "INPROGRESS" -> CiState.RUNNING
+                "FAILED", "CANCELLED" -> CiState.FAILED
+                else -> CiState.NONE
+            }
+            Check(it.str("name") ?: it.str("key") ?: "?", state, it.str("url"))
+        }, url)
+
+        internal fun mergeOptions(check: Map<String, Any?>, config: Map<String, Any?>?): MergeOptions {
+            val strategies = config?.a("strategies").orEmpty().map { it.obj() }.filter { it.bool("enabled") }
+                .mapNotNull { s -> s.str("id")?.let { MergeStrategy(it, s.str("name") ?: it) } }
+            val vetoes = check.a("vetoes").mapNotNull { it.obj().str("summaryMessage") }
+            val blocker = when {
+                vetoes.isNotEmpty() -> vetoes.joinToString("; ")
+                check.bool("conflicted") -> "conflicted"
+                else -> null
+            }
+            return MergeOptions(strategies, config?.o("defaultStrategy")?.str("id"), canDeleteBranch = false, blocker = blocker)
+        }
+
         internal fun reviewers(rs: List<Map<String, Any?>>): Reviews {
             fun who(r: Map<String, Any?>) = r.o("user")?.str("slug")
             return Reviews(rs.filter { it.bool("approved") }.mapNotNull(::who), rs.filter { it.str("status") == "NEEDS_WORK" }.mapNotNull(::who))
