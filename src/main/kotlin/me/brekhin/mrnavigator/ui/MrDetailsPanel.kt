@@ -216,8 +216,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         updateFilesSummary()
         tree.repaint()
         renderThreads()
-        // Relative links in GitLab descriptions (uploads) are relative to the project.
-        description.text = "<html>${Markdown.gfmToHtml(mr.description.ifBlank { msg("details.noDescription") }, mr.webUrl.substringBefore("/-/"))}</html>"
+        description.text = "<html>${Markdown.gfmToHtml(mr.description.ifBlank { msg("details.noDescription") }, mr.projectWebUrl)}</html>"
         description.caretPosition = 0
         revalidate(); repaint()
     }

@@ -27,7 +27,7 @@ object Markdown {
      * Full GitHub-flavoured Markdown for MR descriptions, with the parser bundled in the IDE.
      * Raw HTML of the author is escaped (Swing would interpret `<object>`), images become links
      * (Swing can't load them: uploads need auth), only web and mail links stay clickable,
-     * relative links are resolved against [baseUrl].
+     * relative links are resolved against [baseUrl] — the project's page.
      */
     fun gfmToHtml(md: String, baseUrl: String): String {
         val flavour = GFMFlavourDescriptor()
@@ -44,7 +44,17 @@ object Markdown {
             // Swing CSS knows no classes from the generator.
             .replace("<span class=\"user-del\">", "<span style=\"text-decoration: line-through\">")
             .replace(FOREIGN_LINK, "$1")
-            .replace(RELATIVE_HREF) { "href=\"${baseUrl.trimEnd('/')}/${it.groupValues[1].trimStart('/')}\"" }
+            .replace(RELATIVE_HREF) { "href=\"${resolve(it.groupValues[1], baseUrl.trimEnd('/'))}\"" }
+    }
+
+    /** GitLab's /uploads/ and plain relative links belong to the [project], other root-relative ones to its host. */
+    private fun resolve(href: String, project: String): String {
+        val scheme = project.substringBefore("://")
+        return when {
+            href.startsWith("//") -> "$scheme:$href"
+            href.startsWith("/") && !href.startsWith("/uploads/") -> "$scheme://" + project.substringAfter("://").substringBefore('/') + href
+            else -> "$project/${href.trimStart('/')}"
+        }
     }
 
     fun toHtml(md: String): String {

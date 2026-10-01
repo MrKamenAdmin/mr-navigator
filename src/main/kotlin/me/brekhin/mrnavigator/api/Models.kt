@@ -47,7 +47,15 @@ data class MergeRequest(
     /** Repository to fetch [fetchRef] from when it is not the project's remote (a Bitbucket Cloud fork). */
     val fetchUrl: String? = null,
 ) {
+    /** The project's page — the base of relative links in the description. */
+    val projectWebUrl: String get() = projectUrl(webUrl)
+
     companion object {
+        private val REQUEST_PAGE = Regex("""/(?:-/merge_requests|pull|pull-requests)/\d+.*$""")
+
+        /** "…/team/api/-/merge_requests/12", "…/o/r/pull/42", "…/repos/r/pull-requests/7/overview" → the project URL. */
+        fun projectUrl(webUrl: String): String = webUrl.replace(REQUEST_PAGE, "")
+
         fun from(m: Map<String, Any?>) = MergeRequest(
             iid = m.long("iid") ?: 0,
             title = m.str("title") ?: "",

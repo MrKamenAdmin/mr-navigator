@@ -4,6 +4,7 @@ import me.brekhin.mrnavigator.api.FileChange
 import me.brekhin.mrnavigator.api.Http
 import me.brekhin.mrnavigator.api.basicOrBearer
 import me.brekhin.mrnavigator.api.LinePoint
+import me.brekhin.mrnavigator.api.MergeRequest
 import me.brekhin.mrnavigator.api.Note
 import me.brekhin.mrnavigator.api.NoteSuggestion
 import me.brekhin.mrnavigator.api.Position
@@ -294,6 +295,15 @@ class LogicTest {
     }
 
     @Test
+    fun projectWebUrls() {
+        // Relative links of a description resolve against the project, not the request page.
+        assertEquals("https://git.corp/team/api", MergeRequest.projectUrl("https://git.corp/team/api/-/merge_requests/12"))
+        assertEquals("https://github.com/o/r", MergeRequest.projectUrl("https://github.com/o/r/pull/42"))
+        assertEquals("https://bitbucket.org/ws/repo", MergeRequest.projectUrl("https://bitbucket.org/ws/repo/pull-requests/7"))
+        assertEquals("https://bb.corp/projects/P/repos/r", MergeRequest.projectUrl("https://bb.corp/projects/P/repos/r/pull-requests/12/overview"))
+    }
+
+    @Test
     fun descriptionMarkdown() {
         val base = "https://git.corp/team/api"
         fun html(md: String) = Markdown.gfmToHtml(md, base)
@@ -313,6 +323,9 @@ class LogicTest {
         assertTrue("<a href=\"$base/uploads/ab/s.png\">shot</a>" in img)
         assertTrue("<a href=\"https://e.com\">e</a>" in html("[e](https://e.com)"))
         assertTrue("<a href=\"#x\">" in html("[x](#x)"))
+        // Root-relative links resolve against the host; only GitLab's /uploads/ belong to the project.
+        assertTrue("<a href=\"https://git.corp/team/api/-/issues/1\">" in html("[i](/team/api/-/issues/1)"))
+        assertTrue("<a href=\"$base/docs/a.md\">" in html("[d](docs/a.md)"))
         // Links come from other people: only web and mail links open, the rest stay plain text.
         assertTrue("<a href=\"mailto:a@b.c\">" in html("[m](mailto:a@b.c)"))
         for (link in listOf("[f](file:///Applications/Calculator.app)", "[s](smb://host/share)", "<vscode://open?x=1>", "[j](javascript:alert(1))")) {
