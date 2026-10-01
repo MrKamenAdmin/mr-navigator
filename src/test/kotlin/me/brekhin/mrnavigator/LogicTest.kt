@@ -41,6 +41,19 @@ class LogicTest {
     }
 
     @Test
+    fun legacyMigrationRetriesUntilTheTokenIsReadable() {
+        val s = MrReviewSettings()
+        // A locked keychain at the first try must not drop the old GitLab setup for good.
+        s.migrateLegacy { false }
+        assertTrue(s.connections.isEmpty())
+        s.migrateLegacy { it == "https://gitlab.com" }
+        assertEquals(listOf(Connection(HostingType.GITLAB, "https://gitlab.com")), s.connections)
+        s.connections = emptyList()
+        s.migrateLegacy { true } // done once — a removed connection is not brought back
+        assertTrue(s.connections.isEmpty())
+    }
+
+    @Test
     fun legacySettings() {
         // Pre-0.3 settings: one GitLab server, gitlab.com by default.
         assertEquals(Connection(HostingType.GITLAB, "https://gitlab.com"), MrReviewSettings.legacyConnection(MrReviewSettings.State()))

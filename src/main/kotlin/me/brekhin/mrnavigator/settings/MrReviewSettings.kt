@@ -68,10 +68,21 @@ class MrReviewSettings : PersistentStateComponent<MrReviewSettings.State> {
     }
 
     /** Before 0.3 the plugin knew one GitLab server; it becomes a connection, once. Blocking (password storage). */
-    fun migrateLegacy() {
+    fun migrateLegacy() = migrateLegacy { getToken(it) != null }
+
+    // Synchronized: the tool window and the settings page may both run it on pool threads.
+    @Synchronized
+    internal fun migrateLegacy(hasToken: (url: String) -> Boolean) {
         if (state.migrated) return
-        state.migrated = true
-        legacyConnection(state)?.takeIf { getToken(it.url) != null }?.let { connections = listOf(it) }
+        val legacy = legacyConnection(state)
+        when {
+            legacy == null -> state.migrated = true
+            // Until the token reads, keep trying: a locked keychain must not drop the old setup for good.
+            hasToken(legacy.url) -> {
+                connections = listOf(legacy)
+                state.migrated = true
+            }
+        }
     }
 
     var gitExecutable: String
