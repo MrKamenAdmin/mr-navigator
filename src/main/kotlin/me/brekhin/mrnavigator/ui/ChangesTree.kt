@@ -83,6 +83,19 @@ class ChangesTree(
         TreeUtil.expandAll(this)
     }
 
+    /** New versions of the shown files (a too-large file got its hunks), keeping expansion and selection. */
+    fun update(changes: List<FileChange>) {
+        val byPath = changes.associateBy { it.displayPath }
+        val root = model.root as? DefaultMutableTreeNode ?: return
+        for (node in root.preorderEnumeration()) {
+            val n = node as DefaultMutableTreeNode
+            val f = n.userObject as? File ?: continue
+            byPath[f.change.displayPath]?.takeIf { it != f.change }?.let { n.userObject = File(it, f.hidden) }
+        }
+        shown = collectFiles(root)
+        repaint()
+    }
+
     /** a → b → c with single children becomes "a/b/c". */
     private fun compact(node: DefaultMutableTreeNode) {
         for (i in 0 until node.childCount) {

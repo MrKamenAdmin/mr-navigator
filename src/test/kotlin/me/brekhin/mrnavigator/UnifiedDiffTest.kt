@@ -1,5 +1,6 @@
 package me.brekhin.mrnavigator
 
+import me.brekhin.mrnavigator.api.FileChange
 import me.brekhin.mrnavigator.core.UnifiedDiff
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -7,6 +8,35 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class UnifiedDiffTest {
+    @Test
+    fun fillsTooLargeFileFromLocalDiff() {
+        val big = FileChange("old/a.go", "src/a.go", false, false, true, "", tooLarge = true)
+        // A rename split into delete + add (low similarity): the entry of the new path is taken.
+        val local = """
+            diff --git a/old/a.go b/old/a.go
+            deleted file mode 100644
+            --- a/old/a.go
+            +++ /dev/null
+            @@ -1 +0,0 @@
+            -gone
+            diff --git a/src/a.go b/src/a.go
+            --- a/src/a.go
+            +++ b/src/a.go
+            @@ -1,2 +1,2 @@
+             x
+            -y
+            +z
+        """.trimIndent()
+        val filled = UnifiedDiff.fill(big, local)
+        assertFalse(filled.tooLarge)
+        assertEquals("@@ -1,2 +1,2 @@\n x\n-y\n+z", filled.diff)
+        assertEquals(1 to 1, filled.stats)
+        assertEquals("old/a.go", filled.oldPath)
+        // A binary file has no hunks: it stays as the server gave it.
+        assertEquals(big, UnifiedDiff.fill(big, "diff --git a/src/a.go b/src/a.go\nBinary files a/src/a.go and b/src/a.go differ"))
+        assertEquals(big, UnifiedDiff.fill(big, ""))
+    }
+
     @Test
     fun splitsGitDiff() {
         val diff = """

@@ -219,6 +219,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
     private fun onServiceChanged() {
         val s = session ?: return
         if (service.session !== s && service.session?.mr?.iid == s.mr.iid) session = service.session
+        session?.let { tree.update(it.changes) }
         render()
     }
 

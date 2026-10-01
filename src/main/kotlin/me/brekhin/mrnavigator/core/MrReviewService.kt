@@ -27,7 +27,8 @@ class MrSession(
     /** Remote of [git] that points at [project] — MR refs are fetched from it. */
     val remoteName: String,
     val mr: MergeRequest,
-    val changes: List<FileChange>,
+    /** Files of the MR; those the server sent without hunks get them from git when opened (MrReviewService.fillLargeDiffs). */
+    @Volatile var changes: List<FileChange>,
     @Volatile var discussions: List<Discussion>,
     @Volatile var reviews: Reviews,
     /** Paths the user has already looked at in this version of the MR (kept between IDE restarts). */
@@ -417,6 +418,23 @@ class MrReviewService(private val ideProject: Project) {
             val diff = s.git.run("diff", "-U0", written, head, "--", change.newPath, allowFail = true)
             DiffLineMap(diff).newFor(line)?.let { s.relocated[d.id] = it }
         }
+    }
+
+    /**
+     * Hunks for the files the server sent without them (too large), from a local `git diff` of the same commits:
+     * then they get comments and +/− counts. Needs [ensureCommits]. Returns [files] with the filled ones. Blocking.
+     */
+    fun fillLargeDiffs(s: MrSession, files: List<FileChange>): List<FileChange> {
+        val filled = files.filter { it.tooLarge }.associateWith { c ->
+            // The servers' diff, whatever the user's git config says: 3 lines of context, myers, a/ b/ prefixes.
+            val diff = s.git.run("diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U3", "--diff-algorithm=myers",
+                "--src-prefix=a/", "--dst-prefix=b/", "-M", s.base, s.refs.headSha, "--", c.oldPath, c.newPath, allowFail = true)
+            UnifiedDiff.fill(c, diff)
+        }.filter { (old, new) -> old != new }
+        if (filled.isEmpty()) return files
+        s.changes = s.changes.map { filled[it] ?: it }
+        fireChanged()
+        return files.map { filled[it] ?: it }
     }
 
     // ------------------------------------------------------------- review

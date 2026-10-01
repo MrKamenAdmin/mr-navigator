@@ -11,6 +11,12 @@ object UnifiedDiff {
     // git's a/ b/, and src:// dst:// of Bitbucket Data Center.
     private val PREFIXES = listOf("a/", "b/", "src://", "dst://")
 
+    /** [change] the server sent without hunks, with the hunks of its new path from a local `git diff`; binary stays as is. */
+    fun fill(change: FileChange, gitDiff: String): FileChange {
+        val hunks = split(gitDiff).firstOrNull { it.newPath == change.newPath }?.diff.orEmpty()
+        return if (hunks.startsWith("@@")) change.copy(diff = hunks, tooLarge = false) else change
+    }
+
     fun split(text: String): List<FileChange> {
         val files = ArrayList<MutableList<String>>()
         for (line in text.replace("\r\n", "\n").split('\n')) {

@@ -47,10 +47,10 @@ object MrDiffOpener {
         val service = MrReviewService.getInstance(project)
         Bg.run(project, msg("diff.prepareTask", session.ref), work = {
             service.ensureCommits(session)
-            service.isCheckedOut(session)
-        }) { checkedOut ->
-            val producers = files.map { Producer(project, session, it, checkedOut, scrollTo.takeIf { _ -> it == selected }) }
+            service.fillLargeDiffs(session, files) to service.isCheckedOut(session)
+        }) { (filled, checkedOut) ->
             val index = files.indexOf(selected).coerceAtLeast(0)
+            val producers = filled.mapIndexed { i, f -> Producer(project, session, f, checkedOut, scrollTo.takeIf { files[i] == selected }) }
             val chain = SimpleDiffRequestChain.fromProducers(producers, index)
             DiffManager.getInstance().showDiff(project, chain, DiffDialogHints.DEFAULT)
         }
