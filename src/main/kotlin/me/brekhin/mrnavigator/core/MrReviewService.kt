@@ -38,6 +38,9 @@ class MrSession(
 
     fun isOutdated(d: Discussion): Boolean = d.position?.isOutdatedFor(mr.diffRefs?.headSha) == true
 
+    /** Where outdated threads sit in the current code (thread id → line of the new version); see MrReviewService.relocate. */
+    val relocated = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
     /** Merge base computed by git when the server doesn't give it (GitHub, Bitbucket Cloud); set by ensureCommits. */
     @Volatile var localBase: String? = null
 
@@ -376,6 +379,22 @@ class MrReviewService(private val ideProject: Project) {
     fun applySuggestions(s: MrSession, ids: List<Long>) {
         client(s.connection).applySuggestions(ids)
         refreshDiscussions(s)
+    }
+
+    /**
+     * Finds where outdated threads of [change] sit in the current code: a diff from the version they were
+     * written on (when that commit is local) maps their line, unless the line itself changed. Blocking.
+     */
+    fun relocate(s: MrSession, change: FileChange) {
+        val head = s.mr.diffRefs?.headSha ?: return
+        for (d in s.threadsFor(change)) {
+            val p = d.position ?: continue
+            val line = p.newLine ?: continue
+            val written = p.headSha ?: continue
+            if (!s.isOutdated(d) || written == head || s.relocated.containsKey(d.id) || !s.git.hasCommit(written)) continue
+            val diff = s.git.run("diff", "-U0", written, head, "--", change.newPath, allowFail = true)
+            DiffLineMap(diff).newFor(line)?.let { s.relocated[d.id] = it }
+        }
     }
 
     // ------------------------------------------------------------- review

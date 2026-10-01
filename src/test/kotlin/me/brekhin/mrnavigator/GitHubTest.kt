@@ -87,8 +87,10 @@ class GitHubTest {
         assertTrue(p.isMultiLine); assertFalse(p.isOutdatedFor("h1"))
 
         val old = GitHubClient.parseThread(obj("""{"id":"x","isOutdated":true,"path":"a.go","line":null,"originalLine":5,
-            "diffSide":"LEFT","comments":{"nodes":[{"databaseId":9,"body":"old"}]}}"""), "h1")
+            "diffSide":"LEFT","comments":{"nodes":[{"databaseId":9,"body":"old","originalCommit":{"oid":"old1"}}]}}"""), "h1")
         assertEquals(5, old.position!!.oldLine); assertTrue(old.position!!.isOutdatedFor("h1"))
+        // An outdated thread keeps the commit it was written on: the gutter maps its line from there.
+        assertEquals("old1", old.position!!.headSha)
     }
 
     @Test

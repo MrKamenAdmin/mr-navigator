@@ -17,6 +17,7 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.JBColor
@@ -138,11 +139,7 @@ class CommentMarkers(
         val lineCount = editor.document.lineCount
         val byLine = LinkedHashMap<Int, MutableList<Discussion>>()
         for (d in s.threadsFor(ctx.change)) {
-            val p = d.position ?: continue
-            // Outdated thread (written for an older version of the MR) — its lines no longer match.
-            // It is still listed on the Discussion tab.
-            if (s.isOutdated(d)) continue
-            val lines = threadLines(p, mapping)?.takeIf { it.last < lineCount } ?: continue
+            val lines = linesOf(s, d)?.takeIf { it.last < lineCount } ?: continue
             byLine.getOrPut(lines.first) { ArrayList() } += d
         }
         for ((line, threads) in byLine) {
@@ -158,6 +155,18 @@ class CommentMarkers(
             h.gutterIconRenderer = DraftIcon(lines.last, draft)
             threadHighlighters += h
         }
+    }
+
+    /**
+     * Editor lines of a thread. An outdated one (written for an older version of the MR) is drawn only where
+     * MrReviewService.relocate found its line now — one line, its old range no longer applies; it is always
+     * listed on the Discussion tab.
+     */
+    private fun linesOf(s: MrSession, d: Discussion): IntRange? {
+        val p = d.position ?: return null
+        if (!s.isOutdated(d)) return threadLines(p, mapping)
+        val moved = s.relocated[d.id] ?: ctx.session.relocated[d.id] ?: return null
+        return mapping.toEditor(Side.RIGHT, moved - 1)?.let { it..it }
     }
 
     /** Opens the "new comment" popup for the selected lines or the caret line (context-menu action). */
@@ -253,15 +262,19 @@ class CommentMarkers(
     // ------------------------------------------------------------ renderers
 
     private inner class ThreadsIcon(private val line: Int, private val threads: List<Discussion>) : GutterIconRenderer() {
-        override fun getIcon(): Icon =
-            if (threads.all { it.resolved }) AllIcons.General.InspectionsOK else AllIcons.General.Balloon
+        override fun getIcon(): Icon = when {
+            threads.all { it.resolved } -> AllIcons.General.InspectionsOK
+            threads.all { session.isOutdated(it) } -> IconLoader.getDisabledIcon(AllIcons.General.Balloon)
+            else -> AllIcons.General.Balloon
+        }
 
         override fun getTooltipText(): String = threads.joinToString("<hr>") { d ->
             val first = d.first
             val preview = first?.body?.lineSequence()?.firstOrNull()?.take(120).orEmpty()
             val replies = d.notes.count { !it.system } - 1
             val range = d.position?.takeIf { it.isMultiLine }?.let { " <i>(${msg("diff.lines", it.lineLabel())})</i>" }.orEmpty()
-            "<b>${StringUtil.escapeXmlEntities(first?.author?.name ?: "?")}</b>$range: ${StringUtil.escapeXmlEntities(preview)}" +
+            val outdated = if (session.isOutdated(d)) " <i>(${msg("thread.outdated")})</i>" else ""
+            "<b>${StringUtil.escapeXmlEntities(first?.author?.name ?: "?")}</b>$range$outdated: ${StringUtil.escapeXmlEntities(preview)}" +
                 (if (replies > 0) " (+$replies)" else "") + (if (d.resolved) " ✓" else "")
         }
 
@@ -272,9 +285,10 @@ class CommentMarkers(
             override fun actionPerformed(e: AnActionEvent) {
                 // Several threads on one line: open the first unresolved one.
                 val d = threads.firstOrNull { !it.resolved } ?: threads.first()
-                val lines = d.position?.let { threadLines(it, mapping) } ?: line..line
+                val lines = linesOf(session, d) ?: line..line
                 val highlight = if (lines.first != lines.last) highlightLines(lines.first, lines.last) else null
-                val suggestion = if (d.position?.newLine != null) newSideText(lines.first, lines.last) else null
+                // No suggestions on outdated code.
+                val suggestion = if (!session.isOutdated(d) && d.position?.newLine != null) newSideText(lines.first, lines.last) else null
                 // Under the last line: the highlighted range stays in sight.
                 ThreadPopup.showThread(project, session, d, pointUnder(lines.last), suggestion) { highlight?.dispose() }
             }

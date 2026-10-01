@@ -22,6 +22,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import me.brekhin.mrnavigator.api.FileChange
 import me.brekhin.mrnavigator.core.MrReviewService
 import me.brekhin.mrnavigator.core.MrSession
+import me.brekhin.mrnavigator.git.GitException
 import me.brekhin.mrnavigator.ui.Bg
 import me.brekhin.mrnavigator.util.msg
 import java.io.File
@@ -100,6 +101,11 @@ object MrDiffOpener {
                 request.putUserData(CONTEXT_KEY, MrFileContext(session, change, rightIsLocal))
                 scrollTo?.let { (side, line) -> request.putUserData(DiffUserDataKeys.SCROLL_TO_LINE, Pair.create(side, line)) }
                 MrReviewService.getInstance(project).setViewed(session, change.displayPath, true)
+                // Outdated threads of this file: where are their lines now? A failure only costs their gutter icons.
+                try {
+                    MrReviewService.getInstance(project).relocate(session, change)
+                } catch (e: GitException) {
+                }
                 return request
             } catch (e: ProcessCanceledException) {
                 throw e

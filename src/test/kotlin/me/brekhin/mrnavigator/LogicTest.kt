@@ -175,6 +175,14 @@ class LogicTest {
     }
 
     @Test
+    fun relocateOutdatedLines() {
+        // Old version → new: line 2 changed, two lines added after line 5.
+        val diff = "diff --git a/f.go b/f.go\n--- a/f.go\n+++ b/f.go\n@@ -2 +2 @@\n-old\n+new\n@@ -5,0 +6,2 @@\n+x\n+y\n"
+        val m = DiffLineMap(diff)
+        assertEquals(1, m.newFor(1)); assertNull(m.newFor(2)); assertEquals(5, m.newFor(5)); assertEquals(9, m.newFor(7))
+    }
+
+    @Test
     fun rangesWithinOneHunk() {
         // Hunks: new lines 2..5 / old 2..4, and new 8..9 / old 7..9.
         val m = DiffLineMap("@@ -2,3 +2,4 @@\n two\n-three\n+THREE\n+three-and-half\n four\n@@ -7,3 +8,2 @@\n seven\n-eight\n nine")

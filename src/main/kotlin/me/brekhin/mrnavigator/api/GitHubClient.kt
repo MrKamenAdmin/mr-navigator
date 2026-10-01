@@ -143,7 +143,7 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
                     nodes {
                       id isResolved isOutdated path line startLine originalLine originalStartLine diffSide startDiffSide
                       resolvedBy { login }
-                      comments(first: 100) { nodes { databaseId body createdAt url author { login ... on User { name } } } }
+                      comments(first: 100) { nodes { databaseId body createdAt url author { login ... on User { name } } originalCommit { oid } } }
                     }
                   }
                 }
@@ -216,8 +216,11 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
             val startRight = (t.str("startDiffSide") ?: t.str("diffSide")) != "LEFT"
             fun point(l: Int, onRight: Boolean) = LinePoint("", if (onRight) "new" else "old", if (onRight) null else l, if (onRight) l else null)
             val path = t.str("path")
+            val comments = t.o("comments")?.a("nodes").orEmpty().map { it.obj() }
+            // An outdated thread keeps the commit it was written on: the gutter maps its line from there.
+            val written = if (outdated) comments.firstOrNull()?.o("originalCommit")?.str("oid") ?: headSha else headSha
             val position = Position(
-                null, null, headSha, path, path,
+                null, null, written, path, path,
                 oldLine = if (right) null else line,
                 newLine = if (right) line else null,
                 lineRange = if (start != null && line != null) LineRange(point(start, startRight), point(line, right)) else null,
@@ -225,7 +228,6 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
             )
             val resolved = t.bool("isResolved")
             val resolvedBy = user(t.o("resolvedBy"))
-            val comments = t.o("comments")?.a("nodes").orEmpty().map { it.obj() }
             val notes = comments.map { c ->
                 Note(
                     id = c.long("databaseId") ?: 0, body = c.str("body") ?: "", author = user(c.o("author")),
