@@ -18,6 +18,8 @@ class ChecksTest {
         assertEquals(CiState.NONE, Checks.of(listOf(c(CiState.NONE)), null).state)
         assertEquals(CiState.FAILED, Checks.of(listOf(c(CiState.SUCCESS), c(CiState.FAILED), c(CiState.RUNNING)), null).state)
         assertEquals(CiState.RUNNING, Checks.of(listOf(c(CiState.SUCCESS), c(CiState.RUNNING)), null).state)
+        assertEquals(CiState.RUNNING, Checks.of(listOf(c(CiState.MANUAL), c(CiState.RUNNING)), null).state)
+        assertEquals(CiState.MANUAL, Checks.of(listOf(c(CiState.SUCCESS), c(CiState.MANUAL)), null).state)
         assertEquals(CiState.SUCCESS, Checks.of(listOf(c(CiState.SUCCESS), c(CiState.NONE)), null).state)
         assertEquals("Merge commit", MergeStrategy.of("merge_commit").title)
         // CI only decorates the card: an unreadable answer (an error, an HTML page) hides the line.

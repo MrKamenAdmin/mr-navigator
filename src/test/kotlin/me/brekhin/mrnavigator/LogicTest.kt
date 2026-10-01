@@ -8,6 +8,7 @@ import me.brekhin.mrnavigator.api.GitHubClient
 import me.brekhin.mrnavigator.api.Http
 import me.brekhin.mrnavigator.api.ProjectRef
 import me.brekhin.mrnavigator.api.Reviews
+import me.brekhin.mrnavigator.api.Verdict
 import me.brekhin.mrnavigator.api.basicOrBearer
 import me.brekhin.mrnavigator.api.LinePoint
 import me.brekhin.mrnavigator.api.MergeRequest
@@ -18,8 +19,10 @@ import me.brekhin.mrnavigator.core.DiffLineMap
 import me.brekhin.mrnavigator.core.Drafts
 import me.brekhin.mrnavigator.core.HiddenFiles
 import me.brekhin.mrnavigator.core.MrSession
+import me.brekhin.mrnavigator.core.refreshAfterAction
 import me.brekhin.mrnavigator.git.GitCli
 import me.brekhin.mrnavigator.git.RemoteUrl
+import me.brekhin.mrnavigator.ui.reviewProblem
 import me.brekhin.mrnavigator.util.Json
 import me.brekhin.mrnavigator.util.Markdown
 import me.brekhin.mrnavigator.util.MrBundle
@@ -28,6 +31,7 @@ import me.brekhin.mrnavigator.util.TimeAgo
 import me.brekhin.mrnavigator.util.obj
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -188,8 +192,25 @@ class LogicTest {
         assertEquals(drafts, Drafts.decode(Drafts.encode(drafts)))
         assertEquals(emptyList(), Drafts.decode("not json"))
         assertEquals(emptyList(), Drafts.decode(null))
-        // Entries without an id or a position are dropped, the rest survive.
-        assertEquals(listOf("ok"), Drafts.decode("""[{"id":"x"},{"body":"no id","position":{}},{"id":"ok","position":{"new_line":1,"new_path":"a"}}]""").map { it.id })
+        // Entries without an id, a path or a line are dropped, the rest survive.
+        assertEquals(listOf("ok", "old"), Drafts.decode("""[{"id":"x"},{"body":"no id","position":{}},{"id":"empty","position":{}},
+            {"id":"noline","position":{"new_path":"a"}},{"id":"ok","position":{"new_line":1,"new_path":"a"}},
+            {"id":"old","position":{"old_line":2,"old_path":"b"}}]""").map { it.id })
+    }
+
+    @Test
+    fun failedRefreshDoesNotFailTheAction() {
+        refreshAfterAction { throw ApiException("down") }
+        assertFailsWith<IllegalStateException> { refreshAfterAction { error("bug") } }
+    }
+
+    @Test
+    fun emptyReviewIsNotSent() {
+        assertEquals("review.summaryRequired", reviewProblem(Verdict.REQUEST_CHANGES, "", 3))
+        assertEquals("review.empty", reviewProblem(Verdict.COMMENT, "", 0))
+        assertNull(reviewProblem(Verdict.COMMENT, "", 1))
+        assertNull(reviewProblem(Verdict.COMMENT, "looks fine", 0))
+        assertNull(reviewProblem(Verdict.APPROVE, "", 0))
     }
 
     @Test

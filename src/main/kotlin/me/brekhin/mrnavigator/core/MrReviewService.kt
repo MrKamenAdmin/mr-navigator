@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.ide.util.PropertiesComponent
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VfsUtil
@@ -103,6 +104,18 @@ class MrException(message: String) : Exception(message)
  * [connection] — the one to fix.
  */
 class SetupNeeded(message: String?, val connection: Connection? = null) : Exception(message)
+
+/**
+ * Refreshes the lists after an action the server has done. A failed refresh must not report the action as failed:
+ * a retry would post the comment twice. The list stays stale until the next refresh.
+ */
+internal fun refreshAfterAction(refresh: () -> Unit) {
+    try {
+        refresh()
+    } catch (e: ApiException) {
+        logger<MrReviewService>().info("Refresh after an action failed", e)
+    }
+}
 
 @Service(Service.Level.PROJECT)
 class MrReviewService(private val ideProject: Project) {
@@ -280,8 +293,10 @@ class MrReviewService(private val ideProject: Project) {
         if (!s.git.hasCommit(r.baseSha ?: s.localBase ?: r.startSha)) {
             s.git.run("fetch", remote, s.mr.targetBranch, timeoutMs = 300_000)
         }
-        if (r.baseSha == null && s.localBase == null && s.git.hasCommit(r.startSha) && s.git.hasCommit(r.headSha)) {
-            s.localBase = s.git.run("merge-base", r.startSha, r.headSha, allowFail = true).trim().ifEmpty { null }
+        if (r.baseSha == null && s.localBase == null && s.git.hasCommit(r.headSha)) {
+            // After a force-push of the target branch start is gone: its tip fetched above stands in for it.
+            val target = r.startSha.takeIf { s.git.hasCommit(it) } ?: "refs/remotes/$remote/${s.mr.targetBranch}"
+            s.localBase = s.git.run("merge-base", target, r.headSha, allowFail = true).trim().ifEmpty { null }
         }
         if (!s.git.hasCommit(r.headSha) || !s.git.hasCommit(s.base)) {
             throw GitException(msg("error.fetchFailed", s.type.term, remote))
@@ -360,32 +375,32 @@ class MrReviewService(private val ideProject: Project) {
 
     fun postComment(s: MrSession, body: String, position: Position?) {
         client(s.connection).createDiscussion(s.project, s.mr, body, position)
-        refreshDiscussions(s)
+        refreshAfterAction { refreshDiscussions(s) }
     }
 
     fun reply(s: MrSession, d: Discussion, body: String) {
         client(s.connection).reply(s.project, s.mr, d, body)
-        refreshDiscussions(s)
+        refreshAfterAction { refreshDiscussions(s) }
     }
 
     fun setResolved(s: MrSession, d: Discussion, resolved: Boolean) {
         client(s.connection).resolve(s.project, s.mr, d, resolved)
-        refreshDiscussions(s)
+        refreshAfterAction { refreshDiscussions(s) }
     }
 
     fun editNote(s: MrSession, d: Discussion, note: Note, body: String) {
         client(s.connection).editNote(s.project, s.mr, d, note, body)
-        refreshDiscussions(s)
+        refreshAfterAction { refreshDiscussions(s) }
     }
 
     fun deleteNote(s: MrSession, d: Discussion, note: Note) {
         client(s.connection).deleteNote(s.project, s.mr, d, note)
-        refreshDiscussions(s)
+        refreshAfterAction { refreshDiscussions(s) }
     }
 
     fun applySuggestions(s: MrSession, ids: List<Long>) {
         client(s.connection).applySuggestions(ids)
-        refreshDiscussions(s)
+        refreshAfterAction { refreshDiscussions(s) }
     }
 
     /**
@@ -442,8 +457,10 @@ class MrReviewService(private val ideProject: Project) {
             val ids = sent.map { it.id }.toSet()
             changeDrafts(s) { list -> list.removeAll { it.id in ids } }
         }
-        refreshDiscussions(s)
-        refreshReviews(s)
+        refreshAfterAction {
+            refreshDiscussions(s)
+            refreshReviews(s)
+        }
     }
 
     fun mergeOptions(s: MrSession): MergeOptions = client(s.connection).mergeOptions(s.project, s.mr)
@@ -452,7 +469,7 @@ class MrReviewService(private val ideProject: Project) {
 
     fun withdrawChanges(s: MrSession) {
         client(s.connection).withdrawChanges(s.project, s.mr)
-        refreshReviews(s)
+        refreshAfterAction { refreshReviews(s) }
     }
 
     companion object {

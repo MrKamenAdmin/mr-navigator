@@ -17,7 +17,7 @@ class MergeDialog(project: Project, session: MrSession, private val options: Mer
     private val strategyCombo = ComboBox(options.strategies.toTypedArray()).apply {
         options.strategies.firstOrNull { it.id == options.defaultStrategy }?.let { selectedItem = it }
     }
-    private val deleteBranchBox = JBCheckBox(msg("merge.deleteBranch"))
+    private val deleteBranchBox = JBCheckBox(msg("merge.deleteBranch"), options.deleteBranch)
 
     val strategy: String? get() = (strategyCombo.selectedItem as? MergeStrategy)?.id
     val deleteBranch: Boolean get() = options.canDeleteBranch && deleteBranchBox.isSelected

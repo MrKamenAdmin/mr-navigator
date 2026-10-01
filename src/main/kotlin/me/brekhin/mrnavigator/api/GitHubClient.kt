@@ -318,9 +318,14 @@ class GitHubClient(serverUrl: String, token: String) : HostingClient {
             val sameRepo = head != null && head == pr.o("base")?.o("repo")?.str("full_name")
             // A repository that deletes merged branches itself needs no checkbox.
             val canDelete = sameRepo && repo["delete_branch_on_merge"] != true
-            val state = pr.str("mergeable_state")
-            val blocked = pr["mergeable"] == false || state == "dirty" || state == "blocked"
-            return MergeOptions(strategies, strategies.firstOrNull()?.id, canDelete, if (blocked) state ?: "not mergeable" else null)
+            // mergeable is false only when the test merge failed; the rest (unstable, behind…) is left to the server.
+            val blocker = when {
+                pr["mergeable"] == false || pr.str("mergeable_state") == "dirty" -> msg("merge.conflicts")
+                pr.str("mergeable_state") == "blocked" -> msg("merge.protected")
+                pr.str("mergeable_state") == "draft" -> msg("merge.draft")
+                else -> null
+            }
+            return MergeOptions(strategies, strategies.firstOrNull()?.id, canDelete, blocker)
         }
 
         /** The latest decisive review of each user (comment-only reviews don't change the state). */

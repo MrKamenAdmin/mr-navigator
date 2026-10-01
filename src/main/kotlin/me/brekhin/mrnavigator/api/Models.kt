@@ -289,7 +289,8 @@ data class Reviews(val approved: List<String>, val changesRequested: List<String
 /** A line comment kept in the IDE until the review is submitted. */
 data class Draft(val id: String, val body: String, val position: Position)
 
-enum class CiState { SUCCESS, FAILED, RUNNING, NONE }
+/** [MANUAL] — the pipeline waits for someone to start a job. */
+enum class CiState { SUCCESS, FAILED, RUNNING, MANUAL, NONE }
 
 data class Check(val name: String, val state: CiState, val url: String?)
 
@@ -311,6 +312,7 @@ data class Checks(val state: CiState, val url: String?, val items: List<Check>) 
             val state = when {
                 items.any { it.state == CiState.FAILED } -> CiState.FAILED
                 items.any { it.state == CiState.RUNNING } -> CiState.RUNNING
+                items.any { it.state == CiState.MANUAL } -> CiState.MANUAL
                 items.any { it.state == CiState.SUCCESS } -> CiState.SUCCESS
                 else -> CiState.NONE
             }
@@ -329,4 +331,11 @@ data class MergeStrategy(val id: String, val title: String) {
 }
 
 /** How the request can be merged; [blocker] — the server's reason it can't be now, if any. */
-data class MergeOptions(val strategies: List<MergeStrategy>, val defaultStrategy: String?, val canDeleteBranch: Boolean, val blocker: String?)
+/** [deleteBranch] — the author already asked to delete the source branch on merge. */
+data class MergeOptions(
+    val strategies: List<MergeStrategy>,
+    val defaultStrategy: String?,
+    val canDeleteBranch: Boolean,
+    val blocker: String?,
+    val deleteBranch: Boolean = false,
+)

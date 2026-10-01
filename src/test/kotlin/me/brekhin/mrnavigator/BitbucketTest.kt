@@ -12,6 +12,7 @@ import me.brekhin.mrnavigator.api.HostingType
 import me.brekhin.mrnavigator.api.LinePoint
 import me.brekhin.mrnavigator.api.MergeStrategy
 import me.brekhin.mrnavigator.api.MrFilter
+import me.brekhin.mrnavigator.api.Response
 import me.brekhin.mrnavigator.api.Reviews
 import me.brekhin.mrnavigator.api.Verdict
 import me.brekhin.mrnavigator.core.DiffLineMap
@@ -213,7 +214,11 @@ class BitbucketTest {
         val cloud = BitbucketCloudClient.statuses(listOf("""{"name":"build","state":"SUCCESSFUL","url":"u"}""", """{"key":"k","state":"STOPPED"}""").map { obj(it) }, "pr")
         assertEquals(CiState.FAILED, cloud.state); assertEquals(listOf("build", "k"), cloud.items.map { it.name })
         val o = BitbucketCloudClient.mergeOptions(obj("""{"destination":{"branch":{"merge_strategies":["merge_commit","squash"],"default_merge_strategy":"squash"}}}"""))
-        assertEquals(listOf("merge_commit", "squash"), o.strategies.map { it.id }); assertEquals("squash", o.defaultStrategy)
+        assertEquals(listOf("merge_commit", "squash"), o.strategies.map { it.id }); assertEquals("squash", o.defaultStrategy); assertFalse(o.deleteBranch)
+        assertTrue(BitbucketCloudClient.mergeOptions(obj("""{"close_source_branch":true}""")).deleteBranch)
+        // Only 202 means "still merging, poll the task"; 200 is the merged pull request.
+        assertEquals("t", BitbucketCloudClient.mergeTask(Response("{}", mapOf("Location" to "t"), 202)))
+        assertNull(BitbucketCloudClient.mergeTask(Response("""{"state":"MERGED"}""", mapOf("Location" to "t"), 200)))
         assertTrue(BitbucketCloudClient.taskDone(obj("""{"task_status":"SUCCESS"}"""))); assertFalse(BitbucketCloudClient.taskDone(obj("""{"task_status":"PENDING"}""")))
         val dc = BitbucketServerClient.builds(listOf("""{"name":"b","state":"INPROGRESS"}""").map { obj(it) }, "pr")
         assertEquals(CiState.RUNNING, dc.state)

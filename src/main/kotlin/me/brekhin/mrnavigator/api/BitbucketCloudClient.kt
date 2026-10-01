@@ -1,6 +1,5 @@
 package me.brekhin.mrnavigator.api
 
-import com.intellij.openapi.progress.ProgressManager
 import me.brekhin.mrnavigator.core.UnifiedDiff
 import me.brekhin.mrnavigator.util.a
 import me.brekhin.mrnavigator.util.bool
@@ -10,6 +9,7 @@ import me.brekhin.mrnavigator.util.msg
 import me.brekhin.mrnavigator.util.o
 import me.brekhin.mrnavigator.util.obj
 import me.brekhin.mrnavigator.util.str
+import java.net.HttpURLConnection
 import java.net.URLEncoder
 
 /**
@@ -120,10 +120,9 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
     override fun merge(project: ProjectRef, mr: MergeRequest, strategy: String?, deleteBranch: Boolean) {
         val payload = linkedMapOf<String, Any?>("close_source_branch" to deleteBranch)
         strategy?.let { payload["merge_strategy"] = it }
-        val task = http.call("POST", api + "${pr(project, mr)}/merge", payload).header("Location") ?: return
+        val task = mergeTask(http.call("POST", api + "${pr(project, mr)}/merge", payload)) ?: return
         repeat(60) {
             Thread.sleep(1000)
-            ProgressManager.checkCanceled()
             if (taskDone(http.call("GET", task).json().obj())) return
         }
         throw ApiException(msg("merge.stillRunning", "#${mr.iid}"))
@@ -142,8 +141,11 @@ class BitbucketCloudClient(token: String, username: String?) : HostingClient {
         internal fun mergeOptions(pr: Map<String, Any?>): MergeOptions {
             val branch = pr.o("destination")?.o("branch")
             val strategies = branch?.a("merge_strategies").orEmpty().mapNotNull { it as? String }.map { MergeStrategy.of(it) }
-            return MergeOptions(strategies, branch?.str("default_merge_strategy"), canDeleteBranch = true, blocker = null)
+            return MergeOptions(strategies, branch?.str("default_merge_strategy"), canDeleteBranch = true, blocker = null, deleteBranch = pr.bool("close_source_branch"))
         }
+
+        /** The task to poll when the merge outlived the request (202); 200 means it is merged already. */
+        internal fun mergeTask(r: Response): String? = if (r.status == HttpURLConnection.HTTP_ACCEPTED) r.header("Location") else null
 
         /** A merge task is done at SUCCESS; a failed one comes as an HTTP error of the poll. */
         internal fun taskDone(task: Map<String, Any?>): Boolean = task.str("task_status") == "SUCCESS"

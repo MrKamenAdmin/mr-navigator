@@ -9,16 +9,17 @@ import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import me.brekhin.mrnavigator.util.msg
 
-/** Background work with a progress indicator; callbacks run on the EDT. */
+/** Background work with a progress indicator; callbacks run on the EDT. Work the server can't undo is not [cancellable]. */
 object Bg {
     fun <T> run(
         project: Project,
         title: String,
         work: (ProgressIndicator) -> T,
         onError: (Throwable) -> Unit = { if (it !is java.util.concurrent.CancellationException) Notify.error(project, title, it) },
+        cancellable: Boolean = true,
         onOk: (T) -> Unit,
     ) {
-        ProgressManager.getInstance().run(object : Task.Backgroundable(project, title, true) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, title, cancellable) {
             private var result: Result<T>? = null
 
             override fun run(indicator: ProgressIndicator) {

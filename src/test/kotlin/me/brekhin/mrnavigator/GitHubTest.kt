@@ -11,6 +11,7 @@ import me.brekhin.mrnavigator.api.Reviews
 import me.brekhin.mrnavigator.api.Verdict
 import me.brekhin.mrnavigator.core.DiffLineMap
 import me.brekhin.mrnavigator.util.Json
+import me.brekhin.mrnavigator.util.msg
 import me.brekhin.mrnavigator.util.obj
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -147,7 +148,10 @@ class GitHubTest {
         assertEquals(CiState.RUNNING, checks.items[1].state)
         val pr = obj("""{"mergeable":false,"mergeable_state":"dirty","head":{"repo":{"full_name":"o/r"}},"base":{"repo":{"full_name":"o/r"}}}""")
         val o = GitHubClient.mergeOptions(pr, obj("""{"allow_merge_commit":false,"allow_squash_merge":true,"allow_rebase_merge":true}"""))
-        assertEquals(listOf("squash", "rebase"), o.strategies.map { it.id }); assertEquals("dirty", o.blocker); assertTrue(o.canDeleteBranch)
+        assertEquals(listOf("squash", "rebase"), o.strategies.map { it.id }); assertEquals(msg("merge.conflicts"), o.blocker); assertTrue(o.canDeleteBranch)
+        fun blocker(state: String) = GitHubClient.mergeOptions(obj("""{"mergeable":true,"mergeable_state":"$state"}"""), obj("{}")).blocker
+        assertEquals(msg("merge.protected"), blocker("blocked")); assertEquals(msg("merge.draft"), blocker("draft"))
+        assertNull(blocker("unstable")); assertNull(blocker("clean"))
         // Without push access GitHub hides the allow_* flags: offer all, the server decides.
         val fork = obj("""{"mergeable":true,"head":{"repo":{"full_name":"me/r"}},"base":{"repo":{"full_name":"o/r"}}}""")
         val f = GitHubClient.mergeOptions(fork, obj("{}"))

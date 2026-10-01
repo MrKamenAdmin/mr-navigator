@@ -16,14 +16,15 @@ object Drafts {
     /** Drafts written for the [head] version (or before versions were known); the others point at moved lines. */
     fun current(drafts: List<Draft>, head: String?): List<Draft> = drafts.filterNot { it.position.isOutdatedFor(head) }
 
-    /** Unreadable entries are dropped: a draft is not worth an error. */
+    /** Unreadable entries and positions without a path or a line are dropped: a draft is not worth an error. */
     fun decode(text: String?): List<Draft> {
         if (text.isNullOrBlank()) return emptyList()
         return try {
             Json.parse(text).arr().mapNotNull { e ->
                 val m = e.obj()
                 val id = m.str("id") ?: return@mapNotNull null
-                val position = Position.from(m.o("position")) ?: return@mapNotNull null
+                val position = Position.from(m.o("position"))
+                    ?.takeIf { (it.newPath ?: it.oldPath) != null && (it.newLine ?: it.oldLine) != null } ?: return@mapNotNull null
                 Draft(id, m.str("body") ?: "", position)
             }
         } catch (e: Exception) {

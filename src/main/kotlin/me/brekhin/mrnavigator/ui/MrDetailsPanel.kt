@@ -34,6 +34,7 @@ import me.brekhin.mrnavigator.api.MergeRequest
 import me.brekhin.mrnavigator.core.CheckoutState
 import me.brekhin.mrnavigator.core.MrReviewService
 import me.brekhin.mrnavigator.core.MrSession
+import me.brekhin.mrnavigator.core.refreshAfterAction
 import me.brekhin.mrnavigator.diff.MrDiffOpener
 import me.brekhin.mrnavigator.settings.MrReviewSettings
 import me.brekhin.mrnavigator.util.Markdown
@@ -244,6 +245,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         ci.icon = when (checks.state) {
             CiState.SUCCESS -> AllIcons.General.InspectionsOK
             CiState.FAILED -> AllIcons.General.Error
+            CiState.MANUAL -> AllIcons.Actions.Pause
             else -> AllIcons.Actions.Execute
         }
         if (checks.state != CiState.NONE) ci.text = msg("details.ci.${checks.state.name}")
@@ -252,6 +254,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
                 CiState.SUCCESS -> "✓"
                 CiState.FAILED -> "✗"
                 CiState.RUNNING -> "…"
+                CiState.MANUAL -> "⏸"
                 CiState.NONE -> "·"
             }
             "$mark ${Markdown.escape(c.name)}"
@@ -405,7 +408,7 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
         Bg.run(project, if (approve) msg("details.approve") else msg("details.revokeTask"), work = {
             val c = service.client(s.connection)
             if (approve) c.approve(s.project, s.mr) else c.unapprove(s.project, s.mr)
-            service.refreshReviews(s)
+            refreshAfterAction { service.refreshReviews(s) }
         }) { }
     }
 
@@ -425,8 +428,9 @@ class MrDetailsPanel(private val project: Project, parent: Disposable) : JPanel(
             if (!dialog.showAndGet()) return@run
             val strategy = dialog.strategy
             val deleteBranch = dialog.deleteBranch
+            // A sent merge goes on regardless: a Cancel button would only hide its outcome.
             Bg.run(project, msg("merge.task", s.ref), work = { service.merge(s, strategy, deleteBranch) },
-                onError = { Notify.error(project, msg("merge.failed"), it) }) {
+                onError = { Notify.error(project, msg("merge.failed"), it) }, cancellable = false) {
                 Notify.info(project, msg("merge.done", s.ref, s.mr.targetBranch))
                 load(s.mr, s.type)
             }

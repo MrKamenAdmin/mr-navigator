@@ -11,6 +11,7 @@ import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.panel
 import me.brekhin.mrnavigator.api.Draft
 import me.brekhin.mrnavigator.api.Verdict
+import me.brekhin.mrnavigator.core.Drafts
 import me.brekhin.mrnavigator.core.MrReviewService
 import me.brekhin.mrnavigator.core.MrSession
 import me.brekhin.mrnavigator.util.Markdown
@@ -19,6 +20,13 @@ import java.awt.event.ActionEvent
 import javax.swing.Action
 import javax.swing.ButtonGroup
 import javax.swing.JComponent
+
+/** Why the review can't be sent — a message key, or null when it can. */
+internal fun reviewProblem(verdict: Verdict, summary: String, drafts: Int): String? = when {
+    verdict == Verdict.REQUEST_CHANGES && summary.isEmpty() -> "review.summaryRequired"
+    verdict == Verdict.COMMENT && summary.isEmpty() && drafts == 0 -> "review.empty"
+    else -> null
+}
 
 /** Submits a review: the drafts, a summary and a verdict. */
 class ReviewDialog(project: Project, private val session: MrSession, private val drafts: List<Draft>, verdict: Verdict) :
@@ -77,8 +85,11 @@ class ReviewDialog(project: Project, private val session: MrSession, private val
             }
         })
 
-    override fun doValidate(): ValidationInfo? =
-        if (verdict == Verdict.REQUEST_CHANGES && summary.isEmpty()) ValidationInfo(msg("review.summaryRequired"), summaryArea) else null
+    // Only the drafts that will go: not removed here and written for the current version.
+    override fun doValidate(): ValidationInfo? {
+        val sent = Drafts.current(service.drafts(session), session.mr.diffRefs?.headSha).size
+        return reviewProblem(verdict, summary, sent)?.let { ValidationInfo(msg(it), summaryArea) }
+    }
 
     override fun getPreferredFocusedComponent(): JComponent = summaryArea
 }

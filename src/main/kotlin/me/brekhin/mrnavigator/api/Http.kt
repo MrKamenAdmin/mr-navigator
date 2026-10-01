@@ -13,8 +13,8 @@ import java.util.TreeMap
 
 class ApiException(message: String, val status: Int = 0, cause: Throwable? = null) : IOException(message, cause)
 
-/** Body and headers of a response. */
-class Response(val body: String, private val headers: Map<String, String>) {
+/** Body, headers and status code of a successful response. */
+class Response(val body: String, private val headers: Map<String, String>, val status: Int) {
     fun header(name: String): String? = headers[name]
     fun json(): Any? = if (body.isBlank()) null else Json.parse(body)
 }
@@ -53,7 +53,7 @@ class Http(private val provider: String, private val auth: (URLConnection) -> Un
                     if (code >= 400) throw ApiException(describe(code, errorMessage(request.readError())), code)
                     val headers = TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER)
                     connection.headerFields.forEach { (k, v) -> if (k != null && v.isNotEmpty()) headers[k] = v.first() }
-                    Response(request.readString(), headers)
+                    Response(request.readString(), headers, code)
                 }
         } catch (e: ApiException) {
             throw e

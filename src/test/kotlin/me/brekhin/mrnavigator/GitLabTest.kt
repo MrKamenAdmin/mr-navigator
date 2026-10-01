@@ -1,8 +1,5 @@
 package me.brekhin.mrnavigator
 
-import kotlin.test.assertFailsWith
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
 import me.brekhin.mrnavigator.api.ApiException
 import me.brekhin.mrnavigator.api.CiState
 import me.brekhin.mrnavigator.api.Draft
@@ -12,6 +9,10 @@ import me.brekhin.mrnavigator.util.Json
 import me.brekhin.mrnavigator.util.obj
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class GitLabTest {
     private fun obj(s: String) = Json.parse(s).obj()
@@ -32,11 +33,16 @@ class GitLabTest {
         assertEquals(CiState.RUNNING, p.state); assertEquals("https://g/p/5", p.url)
         assertEquals(CiState.FAILED, GitLabClient.pipeline(obj("""{"status":"failed"}""")).state)
         assertEquals(CiState.NONE, GitLabClient.pipeline(obj("""{"status":"skipped"}""")).state)
+        assertEquals(CiState.MANUAL, GitLabClient.pipeline(obj("""{"status":"manual"}""")).state)
         val o = GitLabClient.mergeOptions(obj("""{"detailed_merge_status":"not_approved"}"""), obj("""{"squash_option":"default_on"}"""))
         assertEquals(listOf("merge", "squash"), o.strategies.map { it.id }); assertEquals("squash", o.defaultStrategy)
         assertEquals("not approved", o.blocker); assertTrue(o.canDeleteBranch)
         val ok = GitLabClient.mergeOptions(obj("""{"detailed_merge_status":"mergeable"}"""), obj("""{"squash_option":"never"}"""))
-        assertNull(ok.blocker); assertEquals(listOf("merge"), ok.strategies.map { it.id })
+        assertNull(ok.blocker); assertEquals(listOf("merge"), ok.strategies.map { it.id }); assertFalse(ok.deleteBranch)
+        // GitLab is still computing the status: the merge itself will tell.
+        for (status in listOf("checking", "unchecked", "preparing", "approvals_syncing"))
+            assertNull(GitLabClient.mergeOptions(obj("""{"detailed_merge_status":"$status"}"""), obj("{}")).blocker, status)
+        assertTrue(GitLabClient.mergeOptions(obj("""{"force_remove_source_branch":true}"""), obj("{}")).deleteBranch)
     }
 
     @Test

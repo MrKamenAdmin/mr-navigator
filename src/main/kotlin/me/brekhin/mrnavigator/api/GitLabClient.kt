@@ -2,6 +2,7 @@ package me.brekhin.mrnavigator.api
 
 import me.brekhin.mrnavigator.util.a
 import me.brekhin.mrnavigator.util.arr
+import me.brekhin.mrnavigator.util.bool
 import me.brekhin.mrnavigator.util.long
 import me.brekhin.mrnavigator.util.msg
 import me.brekhin.mrnavigator.util.o
@@ -156,9 +157,12 @@ class GitLabClient(serverUrl: String, token: String) : HostingClient {
     }
 
     companion object {
+        private val MERGEABLE_OR_UNKNOWN = setOf("mergeable", "checking", "unchecked", "preparing", "approvals_syncing")
+
         internal fun ciState(status: String?): CiState = when (status) {
             "success" -> CiState.SUCCESS
             "failed", "canceled", "canceling" -> CiState.FAILED
+            "manual" -> CiState.MANUAL
             null, "skipped" -> CiState.NONE
             else -> CiState.RUNNING
         }
@@ -177,8 +181,9 @@ class GitLabClient(serverUrl: String, token: String) : HostingClient {
                 else -> listOf("merge", "squash")
             }.map { MergeStrategy.of(it) }
             val default = if (squash == "always" || squash == "default_on") "squash" else "merge"
-            val blocker = mr.str("detailed_merge_status")?.takeIf { it != "mergeable" }?.replace('_', ' ')
-            return MergeOptions(strategies, default, canDeleteBranch = true, blocker = blocker)
+            // While GitLab is still computing the status it is no blocker: the merge itself will tell.
+            val blocker = mr.str("detailed_merge_status")?.takeIf { it !in MERGEABLE_OR_UNKNOWN }?.replace('_', ' ')
+            return MergeOptions(strategies, default, canDeleteBranch = true, blocker = blocker, deleteBranch = mr.bool("force_remove_source_branch"))
         }
 
         /**
