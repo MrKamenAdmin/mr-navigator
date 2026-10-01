@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- GitHub and Bitbucket: a multi-line comment stays within one diff hunk; a range across two hunks is refused with an explanation instead of a server error.
+- Settings of 0.2 move to a GitLab connection even if the password storage was not readable at the first start.
+- Bitbucket Cloud: pull requests are filtered by account uuid instead of the non-unique nickname; a reply to a thread whose first comment was deleted goes under the first remaining comment.
+- GitHub: a pull request opens even when its merge base can't be read.
+- Relative links in descriptions resolve against the project on every hosting.
+
 ## 0.3.0
 
 - GitHub (github.com and Enterprise Server), Bitbucket Cloud and Bitbucket Data Center pull requests, alongside GitLab.
