@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- GitHub (github.com and Enterprise Server), Bitbucket Cloud and Bitbucket Data Center pull requests, alongside GitLab.
+- Several connections at once: the hosting is picked by the host of the repository's git remote. Settings and the token of an existing GitLab connection carry over.
+- English interface; the language is chosen in the settings (automatic by default — Russian on a Russian system).
+- Merge request descriptions are rendered as GitHub-flavoured Markdown: headings, tables, task lists, quotes.
+- The plugin is renamed to MR Navigator.
+
 ## 0.2.0
 
 - Apply suggestions from the comment thread: GitLab commits them to the merge request branch.

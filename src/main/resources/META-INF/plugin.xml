@@ -1,19 +1,19 @@
 <idea-plugin>
     <id>me.brekhin.mr-navigator</id>
-    <name>MR Navigator for GitLab</name>
+    <name>MR Navigator</name>
     <vendor url="https://github.com/MrKamenAdmin/mr-navigator">Aleksandr Brekhin</vendor>
     <description><![CDATA[
-        <p>Review GitLab merge requests right in the IDE, with working code navigation and without generated noise.</p>
+        <p>Review merge and pull requests of GitLab, GitHub and Bitbucket right in the IDE, with working code navigation and without generated noise.</p>
         <ul>
-            <li>Merge request list of the project with filters (all open, waiting for my review, assigned to me, mine, merged); repository switcher for folders with several repositories.</li>
-            <li>One-click checkout of the MR into a local <code>mr/&lt;iid&gt;</code> branch; uncommitted changes are stashed and restored by "Go back".</li>
+            <li>Request list of the project with filters (all open, waiting for my review, assigned to me, mine, merged); repository switcher for folders with several repositories.</li>
+            <li>One-click checkout into a local <code>mr/&lt;number&gt;</code> branch; uncommitted changes are stashed and restored by "Go back".</li>
             <li>Diff whose right side is the real project file — Ctrl+Click, Find Usages and the rest of the navigation work.</li>
             <li>Hides generated files by suffixes you set (e.g. <code>.pb.go</code>) and folders that contain only such files.</li>
             <li>Comments: line and multi-line threads, replies, resolve, suggestions, general comments; approve.</li>
             <li>Files viewed marks and +/− counts; discussion list that opens the diff at the commented line.</li>
         </ul>
-        <p>Works with gitlab.com and self-hosted GitLab (REST API v4, personal access token with the <code>api</code> scope).
-        The user interface is currently in Russian.</p>
+        <p>Works with gitlab.com and self-hosted GitLab, github.com and GitHub Enterprise Server, Bitbucket Cloud and Bitbucket Data Center,
+        several of them at once. English and Russian interface.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
